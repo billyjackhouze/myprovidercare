@@ -6,5 +6,5 @@ router = APIRouter()
 
 
 @router.get("/periods")
-async def list_payroll_periods(current_user=Depends(require_supervisor_or_above())):
+async def list_payroll_periods(current_user=Depends(require_supervisor_or_above)):
     return []
