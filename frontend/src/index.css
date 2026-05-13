@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-page text-heading font-sans;
+    font-size: 13px;
+  }
+}
+
+@layer components {
+  /* Stat card — PreAuthPro pattern */
+  .stat-card {
+    @apply bg-card rounded-card p-3 border border-border;
+    border-top-width: 3px;
+  }
+  .stat-label {
+    @apply text-muted uppercase tracking-widest font-medium;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+  }
+  .stat-number {
+    @apply text-heading font-medium;
+    font-size: 26px;
+  }
+  /* Primary button */
+  .btn-primary {
+    @apply bg-primary hover:bg-primary-hover text-white font-medium rounded-card px-4 py-2 text-sm transition-colors;
+  }
+  .btn-secondary {
+    @apply bg-white hover:bg-gray-50 text-heading font-medium rounded-card px-4 py-2 text-sm border border-border transition-colors;
+  }
+  .btn-danger {
+    @apply bg-danger hover:bg-red-600 text-white font-medium rounded-card px-4 py-2 text-sm transition-colors;
+  }
+  /* Form input */
+  .field-input {
+    @apply w-full border border-border rounded-card px-3 py-2 text-sm text-heading placeholder-muted focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary bg-white;
+  }
+  .field-label {
+    @apply block text-xs font-medium text-heading mb-1;
+  }
+}
