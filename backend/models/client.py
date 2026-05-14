@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import String, Boolean, ForeignKey, Integer, Date, Text
+from sqlalchemy import String, Boolean, ForeignKey, Integer, Date, Text, Numeric, TIMESTAMP
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from geoalchemy2 import Geometry
@@ -15,11 +15,29 @@ class Client(Base, UUIDPrimaryKey, TimestampMixin):
     assigned_cm_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
+
+    # ── Name ────────────────────────────────────────────────────────────────
+    salutation: Mapped[str | None] = mapped_column(String(20))
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    middle_name: Mapped[str | None] = mapped_column(String(100))
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    suffix: Mapped[str | None] = mapped_column(String(20))
+
+    # ── Demographics ────────────────────────────────────────────────────────
     date_of_birth: Mapped[str | None] = mapped_column(Date)
-    medicaid_id: Mapped[str | None] = mapped_column(String(50))
+    birth_year: Mapped[int | None] = mapped_column(Integer)
+    ssn: Mapped[str | None] = mapped_column(String(255))          # store encrypted
     ssn_last4: Mapped[str | None] = mapped_column(String(4))
+    gender: Mapped[str | None] = mapped_column(String(50))
+    gender_expression: Mapped[str | None] = mapped_column(String(50))
+    gender_identifier: Mapped[str | None] = mapped_column(String(50))
+    gender_orientation: Mapped[str | None] = mapped_column(String(50))
+    marital_status: Mapped[str | None] = mapped_column(String(50))
+    race: Mapped[str | None] = mapped_column(String(100))
+    ethnicity: Mapped[str | None] = mapped_column(String(100))
+    birthday_65th: Mapped[str | None] = mapped_column(Date)
+
+    # ── Contact ─────────────────────────────────────────────────────────────
     phone: Mapped[str | None] = mapped_column(String(20))
     email: Mapped[str | None] = mapped_column(String(255))
     address_line1: Mapped[str | None] = mapped_column(String(255))
@@ -27,26 +45,150 @@ class Client(Base, UUIDPrimaryKey, TimestampMixin):
     city: Mapped[str | None] = mapped_column(String(100))
     state: Mapped[str | None] = mapped_column(String(2))
     zip_code: Mapped[str | None] = mapped_column(String(10))
-    # PostGIS geofence
+    county: Mapped[str | None] = mapped_column(String(100))
+    sda: Mapped[str | None] = mapped_column(String(100))
+    emergency_contact: Mapped[dict] = mapped_column(JSONB, default=dict)
+    legal_guardian: Mapped[str | None] = mapped_column(String(255))
+
+    # ── PostGIS geofence ─────────────────────────────────────────────────────
     geo_point = mapped_column(Geometry("POINT", srid=4326))
     geofence_radius_ft: Mapped[int] = mapped_column(Integer, default=300)
-    status: Mapped[str] = mapped_column(String(50), default="active")
-    diagnosis_codes: Mapped[list] = mapped_column(JSONB, default=list)
-    emergency_contact: Mapped[dict] = mapped_column(JSONB, default=dict)
-    payer_info: Mapped[dict] = mapped_column(JSONB, default=dict)
-    fm_record_id: Mapped[str | None] = mapped_column(String(100))
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    # relationships
+    # ── Insurance ───────────────────────────────────────────────────────────
+    medicaid_id: Mapped[str | None] = mapped_column(String(50))
+    medicare_id: Mapped[str | None] = mapped_column(String(100))
+    subscriber_id: Mapped[str | None] = mapped_column(String(100))
+    ins_vendor: Mapped[str | None] = mapped_column(String(255))
+    psych_name: Mapped[str | None] = mapped_column(String(255))
+    pcp_name: Mapped[str | None] = mapped_column(String(255))
+    primary_care_physician: Mapped[str | None] = mapped_column(String(255))
+    psychiatric_provider: Mapped[str | None] = mapped_column(String(255))
+    payer_info: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    # ── LAI ─────────────────────────────────────────────────────────────────
+    on_a_lai: Mapped[bool] = mapped_column(Boolean, default=False)
+    lai_medication: Mapped[str | None] = mapped_column(String(255))
+    injection_dates: Mapped[str | None] = mapped_column(Text)
+
+    # ── Clinical ────────────────────────────────────────────────────────────
+    diagnosis_codes: Mapped[list] = mapped_column(JSONB, default=list)
+    risk_flags: Mapped[list] = mapped_column(JSONB, default=list)
+    mc_note2: Mapped[str | None] = mapped_column(Text)
+
+    # ── Assignment / admin ───────────────────────────────────────────────────
+    loc: Mapped[str | None] = mapped_column(String(100))          # Level of Care
+    chart_id: Mapped[str | None] = mapped_column(String(100))
+    hit_list: Mapped[bool] = mapped_column(Boolean, default=False)
+    fm_record_id: Mapped[str | None] = mapped_column(String(100))
+    pt_status: Mapped[str] = mapped_column(String(50), default="active")
+    status: Mapped[str] = mapped_column(String(50), default="active")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    intake_date: Mapped[str | None] = mapped_column(Date)
+    discharge_date: Mapped[str | None] = mapped_column(Date)
+    last_visit_date: Mapped[str | None] = mapped_column(Date)
+
+    # ── Pre-Auth cross-reference ─────────────────────────────────────────────
+    pre_auth_status: Mapped[str | None] = mapped_column(String(100))
+    pre_auth_cm1: Mapped[str | None] = mapped_column(String(100))
+    pre_auth_cm2: Mapped[str | None] = mapped_column(String(100))
+    pre_auth_ansa: Mapped[str | None] = mapped_column(String(100))
+
+    # ── ANSA / BIO / TP / Auth tracking dates ────────────────────────────────
+    last_ansa_date: Mapped[str | None] = mapped_column(Date)
+    exp_ansa_date: Mapped[str | None] = mapped_column(Date)
+    last_bios_date: Mapped[str | None] = mapped_column(Date)
+    exp_bios_date: Mapped[str | None] = mapped_column(Date)
+    last_tp_date: Mapped[str | None] = mapped_column(Date)
+    exp_tp_date: Mapped[str | None] = mapped_column(Date)
+    last_pn_date: Mapped[str | None] = mapped_column(Date)
+    last_auth_start_date: Mapped[str | None] = mapped_column(Date)
+    last_auth_end_date: Mapped[str | None] = mapped_column(Date)
+    auth_hrs_units: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    avail_hrs_units: Mapped[float | None] = mapped_column(Numeric(10, 2))
+
+    # ── Photo ────────────────────────────────────────────────────────────────
+    photo_s3_key: Mapped[str | None] = mapped_column(String(500))
+
+    # ── Notes ────────────────────────────────────────────────────────────────
+    notes: Mapped[str | None] = mapped_column(Text)
+
+    # ── Relationships ────────────────────────────────────────────────────────
     organization = relationship("Organization", back_populates="clients")
     assigned_cm = relationship("User", foreign_keys=[assigned_cm_id])
     authorizations = relationship("Authorization", back_populates="client", lazy="dynamic")
     contacts = relationship("ClientContact", back_populates="client", lazy="dynamic")
     scheduled_visits = relationship("ScheduledVisit", back_populates="client", lazy="dynamic")
+    medications = relationship("ClientMedication", back_populates="client",
+                               order_by="ClientMedication.name", lazy="selectin")
+    treatment_plans = relationship("ClientTreatmentPlan", back_populates="client",
+                                   order_by="ClientTreatmentPlan.plan_number", lazy="selectin")
 
     @property
     def full_name(self) -> str:
-        return f"{self.first_name} {self.last_name}"
+        parts = [p for p in [self.first_name, self.middle_name, self.last_name] if p]
+        return " ".join(parts)
+
+    @property
+    def display_name(self) -> str:
+        """Last, First format for lists."""
+        return f"{self.last_name}, {self.first_name}"
+
+
+class ClientMedication(Base, UUIDPrimaryKey, TimestampMixin):
+    """Living medication list — updates propagate across all views for this client."""
+    __tablename__ = "client_medications"
+
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    client_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    route: Mapped[str | None] = mapped_column(String(100))
+    dosage: Mapped[str | None] = mapped_column(String(100))
+    frequency: Mapped[str | None] = mapped_column(String(100))
+    indication: Mapped[str | None] = mapped_column(String(255))
+    prescribing_md: Mapped[str | None] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    start_date: Mapped[str | None] = mapped_column(Date)
+    end_date: Mapped[str | None] = mapped_column(Date)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+    client = relationship("Client", back_populates="medications")
+
+
+class ClientTreatmentPlan(Base, UUIDPrimaryKey, TimestampMixin):
+    """Treatment plans 1–4. Hidden tab on client form; pulled into Progress Notes."""
+    __tablename__ = "client_treatment_plans"
+
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    client_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
+    )
+    plan_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    problem: Mapped[str | None] = mapped_column(Text)
+    goals: Mapped[str | None] = mapped_column(Text)
+    objective: Mapped[str | None] = mapped_column(Text)
+    interventions: Mapped[str | None] = mapped_column(Text)
+    target_date: Mapped[str | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(50), default="active")
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+    client = relationship("Client", back_populates="treatment_plans")
 
 
 class ClientContact(Base, UUIDPrimaryKey, TimestampMixin):
@@ -96,3 +238,19 @@ class Authorization(Base, UUIDPrimaryKey, TimestampMixin):
         if self.units_authorized is None:
             return None
         return self.units_authorized - self.units_used
+
+
+class DropdownOption(Base, UUIDPrimaryKey):
+    """Admin-managed dropdown options per page/field."""
+    __tablename__ = "dropdown_options"
+
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    page_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    field_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    value: Mapped[str] = mapped_column(String(255), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[str | None] = mapped_column(TIMESTAMP(timezone=True))

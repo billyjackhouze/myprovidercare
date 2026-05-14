@@ -8,6 +8,8 @@ import Login from '@/pages/Login'
 import Dashboard from '@/pages/Dashboard'
 import FormIngestion from '@/pages/FormIngestion'
 import FormsList from '@/pages/FormsList'
+import ClientList from '@/pages/ClientList'
+import ClientDetail from '@/pages/ClientDetail'
 
 function ProtectedRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -30,8 +32,10 @@ export default function App() {
       <Route path="/forms" element={<ProtectedRoute><FormsList /></ProtectedRoute>} />
       <Route path="/forms/ingest" element={<ProtectedRoute><FormIngestion /></ProtectedRoute>} />
 
-      {/* Placeholder routes */}
-      <Route path="/clients"  element={<ProtectedRoute><PlaceholderPage title="Clients" /></ProtectedRoute>} />
+      {/* Clients */}
+      <Route path="/clients"      element={<ProtectedRoute><ClientList /></ProtectedRoute>} />
+      <Route path="/clients/new"  element={<ProtectedRoute><ClientDetail /></ProtectedRoute>} />
+      <Route path="/clients/:clientId" element={<ProtectedRoute><ClientDetail /></ProtectedRoute>} />
       <Route path="/schedule" element={<ProtectedRoute><PlaceholderPage title="Schedule" /></ProtectedRoute>} />
       <Route path="/visits"   element={<ProtectedRoute><PlaceholderPage title="Visits" /></ProtectedRoute>} />
       <Route path="/notes"    element={<ProtectedRoute><PlaceholderPage title="Progress Notes" /></ProtectedRoute>} />
