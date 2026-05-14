@@ -33,8 +33,7 @@ export default function App() {
       <Route path="/forms/ingest" element={<ProtectedRoute><FormIngestion /></ProtectedRoute>} />
 
       {/* Clients */}
-      <Route path="/clients"      element={<ProtectedRoute><ClientList /></ProtectedRoute>} />
-      <Route path="/clients/new"  element={<ProtectedRoute><ClientDetail /></ProtectedRoute>} />
+      <Route path="/clients"           element={<ProtectedRoute><ClientList /></ProtectedRoute>} />
       <Route path="/clients/:clientId" element={<ProtectedRoute><ClientDetail /></ProtectedRoute>} />
       <Route path="/schedule" element={<ProtectedRoute><PlaceholderPage title="Schedule" /></ProtectedRoute>} />
       <Route path="/visits"   element={<ProtectedRoute><PlaceholderPage title="Visits" /></ProtectedRoute>} />

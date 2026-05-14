@@ -311,7 +311,7 @@ function TreatmentPlansPanel({ clientId }) {
 export default function ClientDetail() {
   const { clientId } = useParams()
   const navigate = useNavigate()
-  const isNew = clientId === 'new'
+  const isNew = !clientId || clientId === 'new'
 
   const [activeTab, setActiveTab] = useState('general')
   const [client, setClient] = useState({})
