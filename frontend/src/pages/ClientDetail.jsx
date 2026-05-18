@@ -2,29 +2,21 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   IconLoader2, IconDeviceFloppy, IconArrowLeft, IconPlus,
-  IconTrash, IconPill, IconAlertTriangle, IconUser,
+  IconTrash, IconPill, IconAlertTriangle, IconUser, IconSettings,
 } from '@tabler/icons-react'
 import api from '@/lib/api'
+import DynamicForm from '@/components/DynamicForm'
 
-// ─── Tab list (mirrors FileMaker sidebar) ────────────────────────────────────
-const TABS = [
-  { key: 'general',    label: 'General Info' },
-  { key: 'intake',     label: 'Intake' },
-  { key: 'referral',   label: 'Referral' },
-  { key: 'hospital',   label: 'Hospital Discharge' },
-  { key: 'auths',      label: 'Auths' },
-  { key: 'superbill',  label: 'Super Bill' },
-  { key: 'therapy',    label: 'Therapy Note' },
-  { key: 'ansa',       label: 'ANSA' },
-  { key: 'treatment',  label: 'Treatment Plan', hidden: true },
-  { key: 'bio',        label: 'BIO' },
-  { key: 'nursing',    label: 'Nursing' },
-  { key: 'risk',       label: 'Risk Screening' },
-  { key: 'notes',      label: 'Progress Notes' },
-  { key: 'appts',      label: 'Appointments' },
-  { key: 'attachments',label: 'Attachments' },
-  { key: 'discharge',  label: 'Discharge' },
-  { key: 'contacts',   label: 'Contact Notes' },
+// Default tabs — used as fallback while workflow config loads
+const DEFAULT_TABS = [
+  { tab_key: 'general',    label: 'General Info', is_visible: true },
+  { tab_key: 'intake',     label: 'Intake',       is_visible: true },
+  { tab_key: 'referral',   label: 'Referral',     is_visible: true },
+  { tab_key: 'treatment',  label: 'Treatment Plan', is_visible: true },
+  { tab_key: 'notes',      label: 'Progress Notes', is_visible: true },
+  { tab_key: 'auths',      label: 'Auths',          is_visible: true },
+  { tab_key: 'discharge',  label: 'Discharge',      is_visible: true },
+  { tab_key: 'contacts',   label: 'Contact Notes',  is_visible: true },
 ]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -317,6 +309,7 @@ export default function ClientDetail() {
   const [client, setClient] = useState({})
   const [dropdowns, setDropdowns] = useState({})
   const [medDropdowns, setMedDropdowns] = useState({})
+  const [workflowTabs, setWorkflowTabs] = useState(DEFAULT_TABS)
   const [loading, setLoading] = useState(!isNew)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -330,6 +323,7 @@ export default function ClientDetail() {
 
     api.get('/clients/dropdowns/client_general').then(r => setDropdowns(r.data)).catch(() => {})
     api.get('/clients/dropdowns/client_medications').then(r => setMedDropdowns(r.data)).catch(() => {})
+    api.get('/workflow/tabs').then(r => setWorkflowTabs(r.data.filter(t => t.is_visible))).catch(() => {})
 
     if (!isNew) {
       setLoading(true)
@@ -373,8 +367,6 @@ export default function ClientDetail() {
     )
   }
 
-  const visibleTabs = TABS.filter(t => !t.hidden || t.key === 'treatment')
-
   return (
     <div className="flex gap-0 h-full">
       {/* Left sidebar — tab navigation */}
@@ -396,22 +388,36 @@ export default function ClientDetail() {
           )}
         </div>
 
-        {/* Tabs */}
+        {/* Tabs — loaded from workflow config */}
         <nav className="flex-1 overflow-y-auto py-1">
-          {visibleTabs.map(t => (
+          {workflowTabs.map(t => (
             <button
-              key={t.key}
-              onClick={() => setActiveTab(t.key)}
+              key={t.tab_key}
+              onClick={() => setActiveTab(t.tab_key)}
               className={`w-full text-left px-3 py-2 text-xs transition-colors ${
-                activeTab === t.key
-                  ? 'bg-primary text-white font-medium rounded-sm mx-0'
+                activeTab === t.tab_key
+                  ? 'bg-primary text-white font-medium'
                   : 'text-muted hover:text-heading hover:bg-page'
-              } ${t.hidden ? 'opacity-60' : ''}`}
+              }`}
             >
               {t.label}
+              {t.tab_type === 'custom' && (
+                <span className="ml-1 text-xs opacity-60">✨</span>
+              )}
             </button>
           ))}
         </nav>
+
+        {/* Workflow settings link */}
+        <div className="p-2 border-t border-border">
+          <button
+            onClick={() => navigate('/settings/workflow')}
+            className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs text-muted hover:text-heading hover:bg-page rounded transition-colors"
+          >
+            <IconSettings size={12} />
+            Manage tabs
+          </button>
+        </div>
       </div>
 
       {/* Main content */}
@@ -453,11 +459,27 @@ export default function ClientDetail() {
           {activeTab === 'treatment' && !isNew && (
             <TreatmentPlansPanel clientId={clientId} />
           )}
-          {activeTab !== 'general' && activeTab !== 'treatment' && (
-            <div className="text-center py-16 text-muted">
-              <p className="text-sm">This tab is coming soon.</p>
-            </div>
-          )}
+          {/* Custom form tabs */}
+          {!isNew && (() => {
+            const tab = workflowTabs.find(t => t.tab_key === activeTab)
+            if (tab?.tab_type === 'custom' && tab?.form_schema_id) {
+              return <DynamicForm clientId={clientId} formSchemaId={tab.form_schema_id} />
+            }
+            return null
+          })()}
+          {/* Built-in placeholder tabs */}
+          {activeTab !== 'general' && activeTab !== 'treatment' && (() => {
+            const tab = workflowTabs.find(t => t.tab_key === activeTab)
+            if (!tab || tab.tab_type !== 'custom') {
+              return (
+                <div className="text-center py-16 text-muted">
+                  <p className="text-sm font-medium text-heading mb-1">{tab?.label || activeTab}</p>
+                  <p className="text-sm">This module is coming soon.</p>
+                </div>
+              )
+            }
+            return null
+          })()}
         </div>
       </div>
     </div>

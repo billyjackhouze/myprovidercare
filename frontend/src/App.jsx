@@ -10,6 +10,7 @@ import FormIngestion from '@/pages/FormIngestion'
 import FormsList from '@/pages/FormsList'
 import ClientList from '@/pages/ClientList'
 import ClientDetail from '@/pages/ClientDetail'
+import WorkflowSettings from '@/pages/WorkflowSettings'
 
 function ProtectedRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -43,6 +44,7 @@ export default function App() {
       <Route path="/map"      element={<ProtectedRoute><PlaceholderPage title="Live Map" /></ProtectedRoute>} />
       <Route path="/audit"    element={<ProtectedRoute><PlaceholderPage title="Audit" /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><PlaceholderPage title="Settings" /></ProtectedRoute>} />
+      <Route path="/settings/workflow" element={<ProtectedRoute><WorkflowSettings /></ProtectedRoute>} />
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

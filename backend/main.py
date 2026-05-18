@@ -67,7 +67,7 @@ async def log_requests(request: Request, call_next):
 
 
 # ── API Routers ───────────────────────────────────────────────────────────────
-from routers import auth, forms, clients, visits, users, claims, payroll, dashboard
+from routers import auth, forms, clients, visits, users, claims, payroll, dashboard, workflow
 
 app.include_router(auth.router,      prefix="/api/auth",      tags=["Auth"])
 app.include_router(users.router,     prefix="/api/users",     tags=["Users"])
@@ -77,6 +77,7 @@ app.include_router(forms.router,     prefix="/api/forms",     tags=["Forms Engin
 app.include_router(claims.router,    prefix="/api/claims",    tags=["Claims"])
 app.include_router(payroll.router,   prefix="/api/payroll",   tags=["Payroll"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+app.include_router(workflow.router,  prefix="/api/workflow",  tags=["Workflow"])
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
