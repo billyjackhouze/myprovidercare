@@ -275,6 +275,9 @@ export default function FormIngestion() {
   const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
   const [savedFormId, setSavedFormId] = useState(null)
+  const [tabLabel, setTabLabel]       = useState('')
+  const [tabAssigned, setTabAssigned] = useState(false)
+  const [assigningTab, setAssigningTab] = useState(false)
 
   // Dropzone
   const onDrop = useCallback((accepted) => {
@@ -361,12 +364,31 @@ export default function FormIngestion() {
         workflow_trigger: workflowTrigger || null,
       })
       setSavedFormId(res.data.id)
+      setTabLabel(formName)
       setStep(2)
       toast.success('Form saved successfully!')
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Save failed')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleAssignTab = async (skip = false) => {
+    if (skip) { setTabAssigned(true); return }
+    if (!tabLabel.trim()) return toast.error('Tab label is required')
+    setAssigningTab(true)
+    try {
+      await api.post('/workflow/tabs/custom', {
+        form_schema_id: savedFormId,
+        label: tabLabel.trim(),
+      })
+      setTabAssigned(true)
+      toast.success(`"${tabLabel}" tab added to client records!`)
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to create tab')
+    } finally {
+      setAssigningTab(false)
     }
   }
 
@@ -623,23 +645,73 @@ export default function FormIngestion() {
       )}
 
       {/* ── Success ────────────────────────────────────────────────────────── */}
-      {savedFormId && (
-        <div className="bg-card rounded-card border border-border p-8 text-center">
-          <IconCircleCheck size={48} className="mx-auto mb-3" style={{ color: '#10B981' }} />
-          <h2 className="text-lg font-semibold text-heading mb-1">Form Saved!</h2>
-          <p className="text-muted text-sm mb-5">
-            <strong>{formName}</strong> is now in the system with {fields.length} fields.
-            {workflowTrigger && ' The workflow trigger has been configured.'}
-          </p>
-          <div className="flex items-center justify-center gap-3">
-            <button className="btn-secondary" onClick={() => navigate('/forms')}>
+      {savedFormId && !tabAssigned && (
+        <div className="bg-card rounded-card border border-border p-6">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+              <IconCircleCheck size={22} style={{ color: '#10B981' }} />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-heading">Form Saved!</h2>
+              <p className="text-muted text-sm"><strong>{formName}</strong> — {fields.length} fields ready</p>
+            </div>
+          </div>
+
+          <div className="border border-border rounded-card p-4 mb-4">
+            <h3 className="text-sm font-medium text-heading mb-1">Add as a Client Record Tab</h3>
+            <p className="text-xs text-muted mb-3">
+              This will add a new tab to every client record so staff can fill out this form per client.
+            </p>
+            <div className="flex gap-2">
+              <input
+                className="field-input flex-1"
+                placeholder="Tab label (e.g. Referral, Hospital Discharge)"
+                value={tabLabel}
+                onChange={e => setTabLabel(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAssignTab()}
+                autoFocus
+              />
+              <button
+                className="btn-primary px-4 flex items-center gap-1.5 shrink-0"
+                onClick={() => handleAssignTab()}
+                disabled={assigningTab || !tabLabel.trim()}
+              >
+                {assigningTab ? <IconLoader2 size={14} className="animate-spin" /> : <IconPlus size={14} />}
+                Create Tab
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <button className="text-xs text-muted hover:text-heading underline" onClick={() => handleAssignTab(true)}>
+              Skip — I'll assign it in Workflow Settings later
+            </button>
+            <button className="btn-secondary text-sm" onClick={() => navigate('/forms')}>
               View All Forms
             </button>
+          </div>
+        </div>
+      )}
+
+      {savedFormId && tabAssigned && (
+        <div className="bg-card rounded-card border border-border p-8 text-center">
+          <IconCircleCheck size={48} className="mx-auto mb-3" style={{ color: '#10B981' }} />
+          <h2 className="text-lg font-semibold text-heading mb-1">
+            {tabLabel ? `"${tabLabel}" Tab Created!` : 'Form Ready'}
+          </h2>
+          <p className="text-muted text-sm mb-5">
+            {tabLabel
+              ? `The tab now appears in all client records. Open any client and click "${tabLabel}" to fill it out.`
+              : `${formName} is saved. Assign it to a tab anytime from Workflow Settings.`}
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <button className="btn-secondary" onClick={() => navigate('/forms')}>View All Forms</button>
             <button
               className="btn-primary"
               onClick={() => {
                 setStep(0); setFile(null); setPreview(null); setSavedFormId(null)
                 setFormName(''); setFormType(''); setSections([]); setFields([])
+                setTabLabel(''); setTabAssigned(false)
               }}
             >
               Ingest Another Form

@@ -461,3 +461,26 @@ async def get_form(
         "ai_extracted": form.ai_extracted,
         "sections": sections_out,
     }
+
+
+@router.delete("/{form_id}", status_code=204)
+async def delete_form(
+    form_id: uuid.UUID,
+    current_user: User = Depends(require_supervisor_or_above),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft-delete a form (marks inactive). Also removes any custom tabs pointing to it."""
+    result = await db.execute(
+        select(Form).where(Form.id == form_id, Form.org_id == current_user.org_id)
+    )
+    form = result.scalar_one_or_none()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+    form.is_active = False
+    # Remove any workflow tabs pointing to this form
+    from sqlalchemy import text as sqlt
+    await db.execute(
+        sqlt("DELETE FROM workflow_tabs WHERE org_id=:oid AND form_schema_id=:fid"),
+        {"oid": str(current_user.org_id), "fid": str(form_id)}
+    )
+    await db.commit()

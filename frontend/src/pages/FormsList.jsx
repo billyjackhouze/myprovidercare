@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { IconPlus, IconSparkles, IconFileDescription, IconLoader2 } from '@tabler/icons-react'
+import { IconPlus, IconSparkles, IconFileDescription, IconLoader2, IconTrash } from '@tabler/icons-react'
+import toast from 'react-hot-toast'
 import api from '@/lib/api'
 
 export default function FormsList() {
@@ -13,6 +14,17 @@ export default function FormsList() {
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  const handleDelete = async (id, name) => {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return
+    try {
+      await api.delete(`/forms/${id}`)
+      setForms(prev => prev.filter(f => f.id !== id))
+      toast.success('Form deleted')
+    } catch {
+      toast.error('Delete failed')
+    }
+  }
 
   return (
     <div>
@@ -57,9 +69,18 @@ export default function FormsList() {
                   <h3 className="text-sm font-semibold text-heading truncate">{form.name}</h3>
                   <span className="text-xs text-muted">{form.form_type || 'Unknown type'}</span>
                 </div>
-                {form.ai_extracted && (
-                  <IconSparkles size={14} style={{ color: '#2563EB' }} className="shrink-0 mt-0.5" />
-                )}
+                <div className="flex items-center gap-2 shrink-0">
+                  {form.ai_extracted && (
+                    <IconSparkles size={14} style={{ color: '#2563EB' }} />
+                  )}
+                  <button
+                    className="text-muted hover:text-red-500 transition-colors p-0.5"
+                    title="Delete form"
+                    onClick={e => { e.stopPropagation(); handleDelete(form.id, form.name) }}
+                  >
+                    <IconTrash size={14} />
+                  </button>
+                </div>
               </div>
               <div className="flex items-center gap-3 text-xs text-muted">
                 <span>{form.section_count} section{form.section_count !== 1 ? 's' : ''}</span>

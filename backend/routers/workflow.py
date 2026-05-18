@@ -245,7 +245,7 @@ async def upsert_form_response(
     if existing:
         await db.execute(text(f"""
             UPDATE client_form_responses
-            SET response_data = :data,
+            SET response_data = CAST(:data AS jsonb),
                 status = :status,
                 completed_at = {'NOW()' if body.status == 'complete' else 'NULL'},
                 updated_by = :user_id,
@@ -262,7 +262,7 @@ async def upsert_form_response(
             INSERT INTO client_form_responses
                 (org_id, client_id, form_schema_id, response_data, status, version, created_by, updated_by)
             VALUES
-                (:org_id, :client_id, :form_schema_id, :data, :status, 1, :user_id, :user_id)
+                (:org_id, :client_id, :form_schema_id, CAST(:data AS jsonb), :status, 1, :user_id, :user_id)
         """), {
             "org_id": str(current_user.org_id),
             "client_id": client_id,
