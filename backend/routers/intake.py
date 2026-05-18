@@ -110,7 +110,7 @@ async def create_intake_visit(
               (org_id, client_id, visit_date, case_manager, visit_start, visit_end,
                assessor_name, assessor_credentials, form_data, status)
             VALUES
-              (:oid, :cid, :vd, :cm, :vs, :ve, :an, :ac, :fd::jsonb, :st)
+              (:oid, :cid, :vd, :cm, :vs, :ve, :an, :ac, CAST(:fd AS jsonb), :st)
             RETURNING id
         """),
         {
@@ -192,7 +192,7 @@ async def update_intake_visit(
                 visit_end            = COALESCE(:ve, visit_end),
                 assessor_name        = COALESCE(:an, assessor_name),
                 assessor_credentials = COALESCE(:ac, assessor_credentials),
-                form_data            = :fd::jsonb,
+                form_data            = CAST(:fd AS jsonb),
                 status               = COALESCE(:st, status),
                 signed_by            = COALESCE(:sb, signed_by),
                 updated_at           = NOW()
