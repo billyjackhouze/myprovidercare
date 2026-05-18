@@ -6,6 +6,7 @@ import {
 } from '@tabler/icons-react'
 import api from '@/lib/api'
 import DynamicForm from '@/components/DynamicForm'
+import IntakeTab from '@/components/IntakeTab'
 
 // Default tabs — used as fallback while workflow config loads
 const DEFAULT_TABS = [
@@ -456,6 +457,9 @@ export default function ClientDetail() {
           {activeTab === 'general' && (
             <GeneralInfoTab client={client} set={set} dropdowns={dropdowns} isNew={isNew} clientId={clientId} medDropdowns={medDropdowns} />
           )}
+          {activeTab === 'intake' && !isNew && (
+            <IntakeTab clientId={clientId} client={client} />
+          )}
           {activeTab === 'treatment' && !isNew && (
             <TreatmentPlansPanel clientId={clientId} />
           )}
@@ -468,7 +472,7 @@ export default function ClientDetail() {
             return null
           })()}
           {/* Built-in placeholder tabs */}
-          {activeTab !== 'general' && activeTab !== 'treatment' && (() => {
+          {activeTab !== 'general' && activeTab !== 'treatment' && activeTab !== 'intake' && (() => {
             const tab = workflowTabs.find(t => t.tab_key === activeTab)
             if (!tab || tab.tab_type !== 'custom') {
               return (
