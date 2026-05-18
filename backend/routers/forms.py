@@ -263,11 +263,29 @@ async def ingest_form(
         else 0.85
     )
 
+    def normalize_options(raw_opts):
+        """Accept either plain strings or {label, value} dicts from Claude."""
+        out = []
+        for o in (raw_opts or []):
+            if isinstance(o, str):
+                out.append({"label": o, "value": o.lower().replace(" ", "_")})
+            elif isinstance(o, dict):
+                out.append({
+                    "label": o.get("label", o.get("value", "")),
+                    "value": o.get("value", o.get("label", "")).lower().replace(" ", "_"),
+                })
+        return out
+
+    normalized_fields = []
+    for f in extracted.get("fields", []):
+        f["options"] = normalize_options(f.get("options", []))
+        normalized_fields.append(f)
+
     return IngestionResult(
         form_name=extracted.get("form_name", file.filename or "Untitled Form"),
         form_type=extracted.get("form_type", "unknown"),
         sections=[ExtractedSection(**s) for s in extracted.get("sections", [])],
-        fields=[ExtractedField(**f) for f in extracted.get("fields", [])],
+        fields=[ExtractedField(**f) for f in normalized_fields],
         ai_model=settings.CLAUDE_MODEL,
         confidence_avg=round(confidence_avg, 2),
         raw_response=extracted,
