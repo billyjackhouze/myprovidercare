@@ -322,15 +322,23 @@ export default function ClientDetail() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
 
-  // Load client + dropdowns
+  // Load client + dropdowns — reset state on every navigation
   useEffect(() => {
+    setClient({})
+    setError(null)
+    setSaved(false)
+
     api.get('/clients/dropdowns/client_general').then(r => setDropdowns(r.data)).catch(() => {})
     api.get('/clients/dropdowns/client_medications').then(r => setMedDropdowns(r.data)).catch(() => {})
+
     if (!isNew) {
+      setLoading(true)
       api.get(`/clients/${clientId}`)
         .then(r => setClient(r.data))
         .catch(() => setError('Client not found.'))
         .finally(() => setLoading(false))
+    } else {
+      setLoading(false)
     }
   }, [clientId, isNew])
 

@@ -221,6 +221,26 @@ def _plan_dict(p: ClientTreatmentPlan) -> dict:
     }
 
 
+# ─── Dropdown options (MUST be before /{client_id} routes) ──────────────────
+
+@router.get("/dropdowns/{page_key}")
+async def get_dropdowns(
+    page_key: str,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(DropdownOption).where(
+        DropdownOption.org_id == current_user.org_id,
+        DropdownOption.page_key == page_key,
+        DropdownOption.is_active == True,
+    ).order_by(DropdownOption.field_key, DropdownOption.sort_order)
+    opts = (await db.execute(stmt)).scalars().all()
+    result: dict[str, list] = {}
+    for o in opts:
+        result.setdefault(o.field_key, []).append({"label": o.label, "value": o.value})
+    return result
+
+
 # ─── Client list ─────────────────────────────────────────────────────────────
 
 @router.get("")
@@ -457,26 +477,6 @@ async def upsert_treatment_plan(
     await db.commit()
     await db.refresh(plan)
     return _plan_dict(plan)
-
-
-# ─── Dropdown options ────────────────────────────────────────────────────────
-
-@router.get("/dropdowns/{page_key}")
-async def get_dropdowns(
-    page_key: str,
-    current_user=Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    stmt = select(DropdownOption).where(
-        DropdownOption.org_id == current_user.org_id,
-        DropdownOption.page_key == page_key,
-        DropdownOption.is_active == True,
-    ).order_by(DropdownOption.field_key, DropdownOption.sort_order)
-    opts = (await db.execute(stmt)).scalars().all()
-    result: dict[str, list] = {}
-    for o in opts:
-        result.setdefault(o.field_key, []).append({"label": o.label, "value": o.value})
-    return result
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
