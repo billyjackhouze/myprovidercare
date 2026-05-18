@@ -79,7 +79,6 @@ class Client(Base, UUIDPrimaryKey, TimestampMixin):
     loc: Mapped[str | None] = mapped_column(String(100))          # Level of Care
     chart_id: Mapped[str | None] = mapped_column(String(100))
     hit_list: Mapped[bool] = mapped_column(Boolean, default=False)
-    fm_record_id: Mapped[str | None] = mapped_column(String(100))
     pt_status: Mapped[str] = mapped_column(String(50), default="active")
     status: Mapped[str] = mapped_column(String(50), default="active")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
