@@ -13,7 +13,6 @@ POST /api/forms/{form_id}/submissions  — Submit a completed form
 GET  /api/forms/{form_id}/submissions  — List submissions for a form
 """
 import base64
-import io
 import json
 import uuid
 import mimetypes
@@ -159,11 +158,38 @@ Return ONLY valid JSON in this exact structure:
 
 # ── Helper: call Claude Vision ────────────────────────────────────────────────
 
-async def extract_fields_with_claude(image_bytes: bytes, media_type: str) -> dict:
-    """Send image to Claude Vision and return parsed extraction result."""
+async def extract_fields_with_claude(file_bytes: bytes, media_type: str) -> dict:
+    """Send image or PDF to Claude and return parsed extraction result.
+
+    Images are sent as vision content; PDFs are sent as document content
+    using the Anthropic native PDF support (no conversion needed).
+    """
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-    b64_image = base64.standard_b64encode(image_bytes).decode("utf-8")
+    b64_data = base64.standard_b64encode(file_bytes).decode("utf-8")
+
+    is_pdf = media_type == "application/pdf"
+
+    if is_pdf:
+        # Use Anthropic's native document block for PDFs
+        file_content_block = {
+            "type": "document",
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": b64_data,
+            },
+        }
+    else:
+        # Image (PNG, JPEG, GIF, WEBP)
+        file_content_block = {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": b64_data,
+            },
+        }
 
     message = client.messages.create(
         model=settings.CLAUDE_MODEL,
@@ -173,14 +199,7 @@ async def extract_fields_with_claude(image_bytes: bytes, media_type: str) -> dic
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": b64_image,
-                        },
-                    },
+                    file_content_block,
                     {
                         "type": "text",
                         "text": "Please analyze this form and extract all fields and sections. Return only valid JSON.",
@@ -228,26 +247,12 @@ async def ingest_form(
     if len(contents) > 20 * 1024 * 1024:  # 20 MB limit
         raise HTTPException(status_code=413, detail="File too large (max 20 MB)")
 
+    # Normalise media type — trust the filename extension if content_type is generic
     media_type = file.content_type or "image/png"
+    if (file.filename or "").lower().endswith(".pdf"):
+        media_type = "application/pdf"
 
-    # If PDF, extract first page as image using Pillow/pypdf
-    if media_type == "application/pdf" or (file.filename or "").lower().endswith(".pdf"):
-        try:
-            from pypdf import PdfReader
-            from PIL import Image as PILImage
-
-            reader = PdfReader(io.BytesIO(contents))
-            if len(reader.pages) == 0:
-                raise HTTPException(status_code=400, detail="PDF has no pages")
-
-            # Extract first page image if available; otherwise use raw bytes for Claude
-            # (Claude can handle PDF pages as images when base64-encoded)
-            # For now pass the PDF bytes directly — Claude handles PDFs too
-            media_type = "application/pdf"
-        except ImportError:
-            pass  # pypdf not available in dev; proceed with raw bytes
-
-    # Send to Claude Vision
+    # Send to Claude (PDFs go as document blocks; images go as vision blocks)
     extracted = await extract_fields_with_claude(contents, media_type)
 
     # Calculate average confidence
