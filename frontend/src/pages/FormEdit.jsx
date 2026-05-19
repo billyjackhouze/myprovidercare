@@ -9,9 +9,12 @@ import toast from 'react-hot-toast'
 import {
   IconArrowLeft, IconPlus, IconTrash, IconCheck,
   IconLoader2, IconChevronDown, IconChevronUp, IconPencil,
-  IconDeviceFloppy, IconZap, IconToggleRight, IconToggleLeft,
-  IconGripVertical, IconAlertCircle, IconBolt,
+  IconDeviceFloppy, IconSettings2, IconSparkles, IconShieldCheck,
 } from '@tabler/icons-react'
+
+// Aliases so the rest of the file doesn't need changing
+const IconZap  = IconSettings2
+const IconBolt = IconSparkles
 import api from '@/lib/api'
 
 const FIELD_TYPES = [
@@ -355,11 +358,12 @@ function RuleCard({ rule, allFields, onToggle, onEdit, onDelete }) {
     <div className={`bg-card border rounded-card overflow-hidden ${rule.is_active ? 'border-border' : 'border-border opacity-60'}`}>
       <div className="flex items-center gap-3 px-4 py-3">
         {/* Toggle */}
-        <button onClick={onToggle} title={rule.is_active ? 'Disable rule' : 'Enable rule'}>
-          {rule.is_active
-            ? <IconToggleRight size={20} className="text-emerald-500" />
-            : <IconToggleLeft  size={20} className="text-muted" />
-          }
+        <button
+          onClick={onToggle}
+          title={rule.is_active ? 'Disable rule' : 'Enable rule'}
+          className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${rule.is_active ? 'bg-emerald-500' : 'bg-gray-300'}`}
+        >
+          <span className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${rule.is_active ? 'translate-x-4' : 'translate-x-0'}`} />
         </button>
 
         {/* Info */}

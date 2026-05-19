@@ -8,9 +8,13 @@ import {
   IconBuilding, IconUsers, IconSettings2, IconShieldLock,
   IconLoader2, IconCheck, IconPlus, IconX, IconPencil,
   IconUserCheck, IconUserOff, IconChevronRight, IconSparkles,
-  IconLock, IconKey, IconShieldCheck, IconToggleRight, IconToggleLeft,
-  IconChevronDown, IconChevronUp, IconInfoCircle,
+  IconLock, IconKey, IconShieldCheck, IconChevronDown, IconChevronUp,
 } from '@tabler/icons-react'
+
+// Simple inline icon substitutes
+function IconInfoCircle({ size = 16, className = '' }) {
+  return <span className={`inline-flex items-center justify-center font-bold text-xs leading-none ${className}`} style={{ width: size, height: size, borderRadius: '50%', border: '1.5px currentColor solid', flexShrink: 0 }}>i</span>
+}
 import api from '@/lib/api'
 import useAuthStore from '@/store/auth'
 
@@ -534,14 +538,12 @@ function RolesTab() {
                       <button
                         onClick={() => togglePerm(p.key, granted)}
                         disabled={isSaving || !canManageRoles}
-                        className={`shrink-0 transition-colors disabled:opacity-50 ${canManageRoles ? 'cursor-pointer' : 'cursor-default'}`}
                         title={granted ? 'Click to revoke' : 'Click to grant'}
+                        className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 disabled:opacity-50 ${granted ? 'bg-emerald-500' : 'bg-gray-200'} ${canManageRoles ? 'cursor-pointer' : 'cursor-default'}`}
                       >
                         {isSaving
-                          ? <IconLoader2 size={18} className="animate-spin text-muted" />
-                          : granted
-                            ? <IconToggleRight size={22} className="text-emerald-500" />
-                            : <IconToggleLeft  size={22} className="text-gray-300" />
+                          ? <IconLoader2 size={12} className="animate-spin text-white mx-auto" />
+                          : <span className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${granted ? 'translate-x-4' : 'translate-x-0'}`} />
                         }
                       </button>
                     </div>

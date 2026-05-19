@@ -11,7 +11,6 @@ import {
   IconShieldCheck,
   IconSettings,
   IconLogout,
-  IconForms,
 } from '@tabler/icons-react'
 import useAuthStore from '@/store/auth'
 
