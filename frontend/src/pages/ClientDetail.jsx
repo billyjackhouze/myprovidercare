@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   IconLoader2, IconDeviceFloppy, IconArrowLeft, IconPlus,
   IconTrash, IconPill, IconAlertTriangle, IconUser, IconSettings,
-  IconX, IconLayoutColumns,
+  IconX, IconLayoutColumns, IconGripVertical,
 } from '@tabler/icons-react'
 import toast from 'react-hot-toast'
 import api from '@/lib/api'
@@ -325,11 +325,36 @@ const BUILTIN_MODULES = [
 ]
 
 function ManageTabsPanel({ clientId, activeTabs, availableForms, onClose, onRefresh, setActiveTab }) {
-  const [adding, setAdding] = useState(null) // tab_key or form id being added
+  const [adding, setAdding] = useState(null)
+  const [localTabs, setLocalTabs] = useState(activeTabs)
+  const dragItem = useRef(null)
+  const dragOver = useRef(null)
+
+  // Keep local tabs in sync when parent refreshes
+  useEffect(() => { setLocalTabs(activeTabs) }, [activeTabs])
+
+  const handleDragStart = (idx) => { dragItem.current = idx }
+  const handleDragEnter = (idx) => { dragOver.current = idx }
+  const handleDragEnd = async () => {
+    if (dragItem.current === null || dragOver.current === null || dragItem.current === dragOver.current) return
+    const reordered = [...localTabs]
+    const dragged = reordered.splice(dragItem.current, 1)[0]
+    reordered.splice(dragOver.current, 0, dragged)
+    const withOrder = reordered.map((t, i) => ({ ...t, sort_order: i + 1 }))
+    setLocalTabs(withOrder)
+    dragItem.current = null
+    dragOver.current = null
+    try {
+      await api.put(`/workflow/clients/${clientId}/tabs/reorder`, {
+        tabs: withOrder.map(t => ({ tab_key: t.tab_key, sort_order: t.sort_order }))
+      })
+      onRefresh()
+    } catch { toast.error('Failed to save order') }
+  }
 
   // What's not already active
-  const activeKeys = new Set(activeTabs.map(t => t.tab_key))
-  const activeFormIds = new Set(activeTabs.map(t => t.form_schema_id).filter(Boolean))
+  const activeKeys = new Set(localTabs.map(t => t.tab_key))
+  const activeFormIds = new Set(localTabs.map(t => t.form_schema_id).filter(Boolean))
 
   const missingBuiltins = BUILTIN_MODULES.filter(b => !activeKeys.has(b.tab_key))
   const missingForms = availableForms.filter(f => !activeFormIds.has(f.id))
@@ -388,13 +413,25 @@ function ManageTabsPanel({ clientId, activeTabs, availableForms, onClose, onRefr
           <button onClick={onClose} className="text-muted hover:text-heading"><IconX size={16} /></button>
         </div>
 
-        {/* Active tabs */}
+        {/* Active tabs — draggable */}
         <div className="px-4 pt-4 pb-3">
-          <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Active</p>
+          <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Active — drag to reorder</p>
           <div className="space-y-0.5">
-            {activeTabs.map(tab => (
-              <div key={tab.tab_key} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-page group">
-                <span className="text-sm text-heading flex items-center gap-1.5">
+            {localTabs.map((tab, idx) => (
+              <div
+                key={tab.tab_key}
+                draggable={tab.tab_key !== 'general'}
+                onDragStart={() => handleDragStart(idx)}
+                onDragEnter={() => handleDragEnter(idx)}
+                onDragEnd={handleDragEnd}
+                onDragOver={e => e.preventDefault()}
+                className={`flex items-center gap-2 py-1.5 px-2 rounded hover:bg-page ${tab.tab_key !== 'general' ? 'cursor-grab active:cursor-grabbing' : ''}`}
+              >
+                <IconGripVertical
+                  size={13}
+                  className={tab.tab_key === 'general' ? 'text-transparent' : 'text-muted shrink-0'}
+                />
+                <span className="flex-1 text-sm text-heading flex items-center gap-1.5">
                   {tab.label}
                   {tab.tab_type === 'custom' && <span className="text-xs text-blue-500">✨</span>}
                 </span>
