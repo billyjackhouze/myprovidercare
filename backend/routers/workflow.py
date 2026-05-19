@@ -516,3 +516,328 @@ async def delete_submission(
     })
     await db.commit()
     return {"ok": True}
+
+
+# ─── Smart Fields ─────────────────────────────────────────────────────────────
+
+import json as _json
+import anthropic as _anthropic
+from typing import Optional
+from config import settings
+
+
+class SmartFieldCreate(BaseModel):
+    label: str
+    source_form_id: uuid.UUID
+    source_field_key: str
+    aggregation: str = 'latest'
+    display_format: str = 'auto'
+    order_index: int = 0
+    nl_description: Optional[str] = None
+
+
+class SmartFieldUpdate(BaseModel):
+    label: Optional[str] = None
+    source_form_id: Optional[uuid.UUID] = None
+    source_field_key: Optional[str] = None
+    aggregation: Optional[str] = None
+    display_format: Optional[str] = None
+    order_index: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class InterpretRuleRequest(BaseModel):
+    description: str
+
+
+@router.get("/smart-fields")
+async def list_smart_fields(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all active smart fields for the org."""
+    rows = (await db.execute(text("""
+        SELECT sf.id, sf.label, sf.source_form_id, sf.source_field_key,
+               sf.aggregation, sf.display_format, sf.order_index, sf.is_active,
+               sf.nl_description, f.name AS source_form_name
+        FROM org_smart_fields sf
+        LEFT JOIN forms f ON f.id = sf.source_form_id
+        WHERE sf.org_id = :org_id
+        ORDER BY sf.order_index, sf.created_at
+    """), {"org_id": str(current_user.org_id)})).mappings().all()
+    result = []
+    for r in rows:
+        d = dict(r)
+        for k in ["id", "source_form_id"]:
+            if d.get(k):
+                d[k] = str(d[k])
+        result.append(d)
+    return result
+
+
+@router.post("/smart-fields/interpret")
+async def interpret_smart_field(
+    body: InterpretRuleRequest,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Use Claude to interpret a plain-language rule into a structured smart field."""
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured")
+
+    # Fetch all active forms + fields for this org
+    forms_rows = (await db.execute(text("""
+        SELECT f.id AS form_id, f.name AS form_name, f.has_list_view,
+               ff.field_key, ff.label AS field_label
+        FROM forms f
+        JOIN form_sections fs ON fs.form_id = f.id
+        JOIN form_fields ff ON ff.section_id = fs.id
+        WHERE f.org_id = :org_id AND f.is_active = true
+        ORDER BY f.name, ff.label
+    """), {"org_id": str(current_user.org_id)})).mappings().all()
+
+    # Build a structured list for Claude
+    forms_map = {}
+    for row in forms_rows:
+        fid = str(row["form_id"])
+        if fid not in forms_map:
+            forms_map[fid] = {
+                "form_id": fid,
+                "form_name": row["form_name"],
+                "has_list_view": row["has_list_view"],
+                "fields": [],
+            }
+        forms_map[fid]["fields"].append({
+            "field_key": row["field_key"],
+            "label": row["field_label"],
+        })
+
+    available_forms = list(forms_map.values())
+
+    user_msg = (
+        f'User description: "{body.description}"\n\n'
+        f'Available forms and fields:\n{_json.dumps(available_forms, indent=2)}\n\n'
+        'Return ONLY valid JSON matching the schema:\n'
+        '{"label": "...", "source_form_id": "...", "source_field_key": "...", '
+        '"aggregation": "latest|sum|count|max|min", '
+        '"display_format": "auto|date|number|text|currency", '
+        '"confidence": 0.0-1.0, "reasoning": "..."}\n'
+        'If you cannot confidently match, return: {"error": "could not match", "reasoning": "..."}'
+    )
+
+    client = _anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    try:
+        response = client.messages.create(
+            model=settings.CLAUDE_MODEL,
+            max_tokens=512,
+            system=(
+                "You are a healthcare case management software assistant. "
+                "Your job is to interpret a plain-language description of a 'smart field' rule "
+                "and map it to a structured rule given available forms and fields. "
+                "Return ONLY valid JSON."
+            ),
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        raw = response.content[0].text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = _json.loads(raw.strip())
+        # Attach form name if matched
+        if "source_form_id" in result and not result.get("error"):
+            matched = forms_map.get(result["source_form_id"])
+            result["source_form_name"] = matched["form_name"] if matched else None
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Claude interpretation failed: {str(e)}")
+
+
+@router.post("/smart-fields")
+async def create_smart_field(
+    body: SmartFieldCreate,
+    current_user=Depends(require_supervisor_or_above),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save a smart field rule."""
+    row = await db.execute(text("""
+        INSERT INTO org_smart_fields
+            (org_id, label, source_form_id, source_field_key,
+             aggregation, display_format, order_index, nl_description)
+        VALUES
+            (:org_id, :label, :source_form_id, :source_field_key,
+             :aggregation, :display_format, :order_index, :nl_description)
+        RETURNING id
+    """), {
+        "org_id": str(current_user.org_id),
+        "label": body.label,
+        "source_form_id": str(body.source_form_id),
+        "source_field_key": body.source_field_key,
+        "aggregation": body.aggregation,
+        "display_format": body.display_format,
+        "order_index": body.order_index,
+        "nl_description": body.nl_description,
+    })
+    await db.commit()
+    return {"id": str(row.fetchone()[0]), "ok": True}
+
+
+@router.put("/smart-fields/{sf_id}")
+async def update_smart_field(
+    sf_id: str,
+    body: SmartFieldUpdate,
+    current_user=Depends(require_supervisor_or_above),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a smart field rule."""
+    updates = {}
+    if body.label is not None:
+        updates["label"] = body.label
+    if body.source_form_id is not None:
+        updates["source_form_id"] = str(body.source_form_id)
+    if body.source_field_key is not None:
+        updates["source_field_key"] = body.source_field_key
+    if body.aggregation is not None:
+        updates["aggregation"] = body.aggregation
+    if body.display_format is not None:
+        updates["display_format"] = body.display_format
+    if body.order_index is not None:
+        updates["order_index"] = body.order_index
+    if body.is_active is not None:
+        updates["is_active"] = body.is_active
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+    updates["sf_id"] = sf_id
+    updates["org_id"] = str(current_user.org_id)
+
+    await db.execute(
+        text(f"UPDATE org_smart_fields SET {set_clause}, updated_at=NOW() WHERE id=:sf_id AND org_id=:org_id"),
+        updates,
+    )
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/smart-fields/{sf_id}")
+async def delete_smart_field(
+    sf_id: str,
+    current_user=Depends(require_supervisor_or_above),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a smart field rule."""
+    await db.execute(text("""
+        DELETE FROM org_smart_fields
+        WHERE id = :sf_id AND org_id = :org_id
+    """), {"sf_id": sf_id, "org_id": str(current_user.org_id)})
+    await db.commit()
+    return {"ok": True}
+
+
+@router.get("/clients/{client_id}/smart-field-values")
+async def get_smart_field_values(
+    client_id: str,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Compute live values for all active smart fields for a client."""
+    # Load active smart fields for this org
+    sf_rows = (await db.execute(text("""
+        SELECT sf.id, sf.label, sf.source_form_id, sf.source_field_key,
+               sf.aggregation, sf.display_format,
+               f.name AS source_form_name, f.has_list_view
+        FROM org_smart_fields sf
+        LEFT JOIN forms f ON f.id = sf.source_form_id
+        WHERE sf.org_id = :org_id AND sf.is_active = true
+        ORDER BY sf.order_index, sf.created_at
+    """), {"org_id": str(current_user.org_id)})).mappings().all()
+
+    results = []
+    for sf in sf_rows:
+        sf_id = str(sf["id"])
+        form_id = str(sf["source_form_id"]) if sf["source_form_id"] else None
+        field_key = sf["source_field_key"]
+        agg = sf["aggregation"]
+        value = None
+
+        if form_id:
+            try:
+                params = {
+                    "org_id": str(current_user.org_id),
+                    "client_id": client_id,
+                    "form_id": form_id,
+                    "field_key": field_key,
+                }
+                # All forms use client_form_responses table
+                if agg == "latest":
+                    row = (await db.execute(text("""
+                        SELECT response_data->>:field_key AS val
+                        FROM client_form_responses
+                        WHERE org_id = :org_id
+                          AND client_id = :client_id
+                          AND form_schema_id = :form_id
+                          AND response_data ? :field_key
+                        ORDER BY updated_at DESC
+                        LIMIT 1
+                    """), params)).mappings().first()
+                    value = row["val"] if row else None
+
+                elif agg == "count":
+                    row = (await db.execute(text("""
+                        SELECT COUNT(*) AS val
+                        FROM client_form_responses
+                        WHERE org_id = :org_id
+                          AND client_id = :client_id
+                          AND form_schema_id = :form_id
+                    """), params)).mappings().first()
+                    value = str(row["val"]) if row else "0"
+
+                elif agg == "sum":
+                    row = (await db.execute(text("""
+                        SELECT SUM((response_data->>:field_key)::numeric) AS val
+                        FROM client_form_responses
+                        WHERE org_id = :org_id
+                          AND client_id = :client_id
+                          AND form_schema_id = :form_id
+                          AND response_data ? :field_key
+                    """), params)).mappings().first()
+                    value = str(row["val"]) if row and row["val"] is not None else None
+
+                elif agg == "max":
+                    row = (await db.execute(text("""
+                        SELECT MAX(response_data->>:field_key) AS val
+                        FROM client_form_responses
+                        WHERE org_id = :org_id
+                          AND client_id = :client_id
+                          AND form_schema_id = :form_id
+                          AND response_data ? :field_key
+                    """), params)).mappings().first()
+                    value = row["val"] if row else None
+
+                elif agg == "min":
+                    row = (await db.execute(text("""
+                        SELECT MIN(response_data->>:field_key) AS val
+                        FROM client_form_responses
+                        WHERE org_id = :org_id
+                          AND client_id = :client_id
+                          AND form_schema_id = :form_id
+                          AND response_data ? :field_key
+                    """), params)).mappings().first()
+                    value = row["val"] if row else None
+
+            except Exception:
+                value = None
+
+        results.append({
+            "id": sf_id,
+            "label": sf["label"],
+            "value": value,
+            "display_format": sf["display_format"],
+            "aggregation": agg,
+            "source_form_name": sf["source_form_name"],
+        })
+
+    return results

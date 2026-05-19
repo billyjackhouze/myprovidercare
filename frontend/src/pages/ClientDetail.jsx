@@ -690,7 +690,7 @@ export default function ClientDetail() {
         {/* Tab content */}
         <div className="p-5">
           {activeTab === 'general' && (
-            <GeneralInfoTab client={client} set={set} dropdowns={dropdowns} isNew={isNew} clientId={clientId} medDropdowns={medDropdowns} />
+            <GeneralInfoTab client={client} set={set} dropdowns={dropdowns} isNew={isNew} clientId={clientId} medDropdowns={medDropdowns} activeTab={activeTab} />
           )}
           {activeTab === 'intake' && !isNew && (
             <IntakeTab clientId={clientId} client={client} />
@@ -725,13 +725,71 @@ export default function ClientDetail() {
   )
 }
 
+
+// ─── Key Metrics panel (smart fields) ────────────────────────────────────────
+function KeyMetricsPanel({ clientId, activeTab }) {
+  const [metrics, setMetrics] = useState([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!clientId || activeTab !== 'general') return
+    setLoading(true)
+    api.get(`/workflow/clients/${clientId}/smart-field-values`)
+      .then(r => setMetrics(r.data || []))
+      .catch(() => setMetrics([]))
+      .finally(() => setLoading(false))
+  }, [clientId, activeTab])
+
+  const formatValue = (value, fmt) => {
+    if (value === null || value === undefined || value === '') return '—'
+    try {
+      if (fmt === 'date') return new Date(value).toLocaleDateString()
+      if (fmt === 'number') return parseFloat(value).toLocaleString()
+      if (fmt === 'currency') return `$${parseFloat(value).toFixed(2)}`
+    } catch {}
+    return value
+  }
+
+  if (loading) return (
+    <div className="flex items-center gap-2 text-muted text-xs py-2 mb-4">
+      <IconLoader2 size={13} className="animate-spin" /> Loading key metrics…
+    </div>
+  )
+
+  if (!metrics.length) return null
+
+  return (
+    <div className="flex flex-wrap gap-3 mb-5">
+      {metrics.map(m => (
+        <div
+          key={m.id}
+          className="bg-card border border-border rounded-card px-4 py-3 min-w-[130px]"
+        >
+          <p className="text-xs text-muted font-medium uppercase tracking-wide mb-0.5">{m.label}</p>
+          <p className="text-base font-semibold" style={{ color: '#0D9488' }}>
+            {formatValue(m.value, m.display_format)}
+          </p>
+          {m.source_form_name && (
+            <p className="text-xs text-muted mt-0.5 truncate">{m.source_form_name}</p>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ─── General Info tab ─────────────────────────────────────────────────────────
-function GeneralInfoTab({ client, set, dropdowns, isNew, clientId, medDropdowns }) {
+function GeneralInfoTab({ client, set, dropdowns, isNew, clientId, medDropdowns, activeTab }) {
   const c = client
   const dd = dropdowns
 
   return (
     <div className="space-y-6">
+
+      {/* Smart field key metrics */}
+      {!isNew && clientId && (
+        <KeyMetricsPanel clientId={clientId} activeTab={activeTab} />
+      )}
 
       {/* HIT List warning */}
       {c.hit_list && (
