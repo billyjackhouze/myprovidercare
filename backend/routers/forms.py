@@ -23,6 +23,7 @@ import anthropic
 from fastapi import APIRouter, Depends, File, Form as FormParam, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
@@ -386,7 +387,9 @@ async def list_forms(
 ):
     """List all active forms for the current org."""
     result = await db.execute(
-        select(Form).where(
+        select(Form)
+        .options(selectinload(Form.sections).selectinload(FormSection.fields))
+        .where(
             Form.org_id == current_user.org_id,
             Form.is_active == True,
         ).order_by(Form.created_at.desc())
@@ -395,8 +398,8 @@ async def list_forms(
 
     out = []
     for f in forms:
-        section_count = len(f.sections) if hasattr(f, "sections") else 0
-        field_count = sum(len(s.fields) for s in (f.sections or []))
+        section_count = len(f.sections)
+        field_count = sum(len(s.fields) for s in f.sections)
         out.append(FormResponse(
             id=f.id,
             name=f.name,
@@ -419,7 +422,9 @@ async def get_form(
 ):
     """Return a form with all sections and fields, ordered."""
     result = await db.execute(
-        select(Form).where(Form.id == form_id, Form.org_id == current_user.org_id)
+        select(Form)
+        .options(selectinload(Form.sections).selectinload(FormSection.fields))
+        .where(Form.id == form_id, Form.org_id == current_user.org_id)
     )
     form = result.scalar_one_or_none()
     if not form:
