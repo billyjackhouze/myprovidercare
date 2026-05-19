@@ -273,6 +273,8 @@ export default function FormIngestion() {
   // Save options
   const [workflowTrigger, setWorkflowTrigger] = useState('')
   const [description, setDescription] = useState('')
+  const [hasListView, setHasListView] = useState(false)
+  const [listColumns, setListColumns] = useState([])
   const [saving, setSaving] = useState(false)
   const [savedFormId, setSavedFormId] = useState(null)
   const [tabLabel, setTabLabel]       = useState('')
@@ -362,6 +364,8 @@ export default function FormIngestion() {
         fields,
         ai_extraction_raw: rawResponse,
         workflow_trigger: workflowTrigger || null,
+        has_list_view: hasListView,
+        list_columns: listColumns,
       })
       setSavedFormId(res.data.id)
       setTabLabel(formName)
@@ -613,6 +617,54 @@ export default function FormIngestion() {
                 When should this form automatically appear for staff? Choose the event that triggers it.
               </p>
             </div>
+          </div>
+
+          {/* List View configuration */}
+          <div className="col-span-2 border border-border rounded-card p-4 mb-5">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-sm font-medium text-heading">Enable List View</p>
+                <p className="text-xs text-muted mt-0.5">
+                  Allow multiple records per client (like progress notes or referrals). Staff see a list and can open each record individually.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHasListView(v => !v)}
+                className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors ${hasListView ? 'bg-primary' : 'bg-slate-200'}`}
+              >
+                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${hasListView ? 'translate-x-4' : 'translate-x-0'}`} />
+              </button>
+            </div>
+
+            {hasListView && (
+              <div>
+                <p className="text-xs font-medium text-heading mb-2">List Columns — pick fields to show in the list view</p>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {fields.map(f => {
+                    const isChecked = listColumns.some(c => c.field_key === f.field_key)
+                    return (
+                      <label key={f.field_key} className="flex items-center gap-2 cursor-pointer py-1 px-2 rounded hover:bg-page">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setListColumns(prev => [...prev, { field_key: f.field_key, label: f.label }])
+                            } else {
+                              setListColumns(prev => prev.filter(c => c.field_key !== f.field_key))
+                            }
+                          }}
+                          className="accent-blue-600"
+                        />
+                        <span className="text-xs text-heading">{f.label}</span>
+                        <span className="text-xs text-muted ml-auto">{f.field_type}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Summary */}

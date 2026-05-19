@@ -52,6 +52,9 @@ class Form(Base, UUIDPrimaryKey, TimestampMixin):
     source_file_s3_key: Mapped[str | None] = mapped_column(String(500))  # original scan
     print_template_s3_key: Mapped[str | None] = mapped_column(String(500))  # PDF template for printing
 
+    # List-view configuration
+    has_list_view: Mapped[bool] = mapped_column(Boolean, default=False)
+
     # Workflow configuration
     workflow_config: Mapped[dict] = mapped_column(JSONB, default=dict)
 

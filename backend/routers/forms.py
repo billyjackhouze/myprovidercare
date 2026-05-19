@@ -83,6 +83,8 @@ class SaveFormRequest(BaseModel):
     ai_extraction_raw: dict
     source_file_s3_key: Optional[str] = None
     workflow_trigger: Optional[str] = None
+    has_list_view:      bool = False
+    list_columns:       list = []   # [{field_key, label}]
 
 
 class FormResponse(BaseModel):
@@ -315,6 +317,9 @@ async def save_ingested_form(
         source_file_s3_key=body.source_file_s3_key,
         created_by=current_user.id,
     )
+    form.has_list_view = body.has_list_view
+    # store list_columns on workflow_config since we already have that JSONB column
+    form.workflow_config = {"list_columns": body.list_columns}
     db.add(form)
     await db.flush()  # get form.id
 
@@ -464,6 +469,8 @@ async def get_form(
         "version": form.version,
         "is_active": form.is_active,
         "ai_extracted": form.ai_extracted,
+        "has_list_view": form.has_list_view,
+        "list_columns": (form.workflow_config or {}).get("list_columns", []),
         "sections": sections_out,
     }
 

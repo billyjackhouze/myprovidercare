@@ -383,3 +383,136 @@ async def reorder_client_tabs(
         })
     await db.commit()
     return {"ok": True}
+
+
+# ─── Form submissions (multi-record list-view forms) ─────────────────────────
+
+@router.get("/clients/{client_id}/submissions/{form_id}")
+async def list_submissions(
+    client_id: str,
+    form_id: str,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all submissions for a client+form (for list-view forms)."""
+    rows = (await db.execute(text("""
+        SELECT id, response_data, status, version, created_at, updated_at
+        FROM client_form_responses
+        WHERE org_id = :oid AND client_id = :cid AND form_schema_id = :fid
+        ORDER BY created_at DESC
+    """), {
+        "oid": str(current_user.org_id),
+        "cid": client_id,
+        "fid": form_id,
+    })).mappings().all()
+    result = []
+    for r in rows:
+        d = dict(r)
+        for k in ["id", "created_at", "updated_at"]:
+            if d.get(k): d[k] = str(d[k])
+        result.append(d)
+    return result
+
+
+@router.post("/clients/{client_id}/submissions/{form_id}")
+async def create_submission(
+    client_id: str,
+    form_id: str,
+    body: FormResponseUpsert,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new submission (always inserts a new row)."""
+    import json as _json
+    row = await db.execute(text("""
+        INSERT INTO client_form_responses
+            (org_id, client_id, form_schema_id, response_data, status, version, created_by, updated_by)
+        VALUES
+            (:oid, :cid, :fid, CAST(:data AS jsonb), :status, 1, :uid, :uid)
+        RETURNING id
+    """), {
+        "oid": str(current_user.org_id),
+        "cid": client_id,
+        "fid": form_id,
+        "data": _json.dumps(body.response_data),
+        "status": body.status,
+        "uid": str(current_user.id),
+    })
+    await db.commit()
+    return {"id": str(row.fetchone()[0])}
+
+
+@router.get("/clients/{client_id}/submissions/{form_id}/{submission_id}")
+async def get_submission(
+    client_id: str,
+    form_id: str,
+    submission_id: str,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a specific submission."""
+    row = (await db.execute(text("""
+        SELECT id, response_data, status, version, created_at, updated_at
+        FROM client_form_responses
+        WHERE id = :sid AND client_id = :cid AND org_id = :oid AND form_schema_id = :fid
+    """), {
+        "sid": submission_id, "cid": client_id,
+        "oid": str(current_user.org_id), "fid": form_id,
+    })).mappings().first()
+    if not row:
+        from fastapi import HTTPException
+        raise HTTPException(404, "Submission not found")
+    d = dict(row)
+    for k in ["id", "created_at", "updated_at"]:
+        if d.get(k): d[k] = str(d[k])
+    return d
+
+
+@router.put("/clients/{client_id}/submissions/{form_id}/{submission_id}")
+async def update_submission(
+    client_id: str,
+    form_id: str,
+    submission_id: str,
+    body: FormResponseUpsert,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a specific submission."""
+    import json as _json
+    await db.execute(text("""
+        UPDATE client_form_responses
+        SET response_data = CAST(:data AS jsonb),
+            status = :status,
+            updated_by = :uid,
+            updated_at = NOW()
+        WHERE id = :sid AND client_id = :cid AND org_id = :oid
+    """), {
+        "data": _json.dumps(body.response_data),
+        "status": body.status,
+        "uid": str(current_user.id),
+        "sid": submission_id,
+        "cid": client_id,
+        "oid": str(current_user.org_id),
+    })
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/clients/{client_id}/submissions/{form_id}/{submission_id}")
+async def delete_submission(
+    client_id: str,
+    form_id: str,
+    submission_id: str,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a specific submission."""
+    await db.execute(text("""
+        DELETE FROM client_form_responses
+        WHERE id = :sid AND client_id = :cid AND org_id = :oid
+    """), {
+        "sid": submission_id, "cid": client_id,
+        "oid": str(current_user.org_id),
+    })
+    await db.commit()
+    return {"ok": True}

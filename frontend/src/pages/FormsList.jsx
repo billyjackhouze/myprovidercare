@@ -33,6 +33,10 @@ export default function FormsList() {
           <h1 className="text-2xl font-medium text-heading">Forms Engine</h1>
           <p className="text-muted text-sm mt-0.5">AI-powered form ingestion and management</p>
         </div>
+        <Link to="/forms/build" className="btn-secondary flex items-center gap-1.5 text-sm">
+          <IconPlus size={16} />
+          Build Form
+        </Link>
         <Link to="/forms/ingest" className="btn-primary flex items-center gap-1.5 text-sm">
           <IconPlus size={16} />
           Ingest New Form
