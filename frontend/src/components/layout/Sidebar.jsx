@@ -11,25 +11,39 @@ import {
   IconShieldCheck,
   IconSettings,
   IconLogout,
+  IconForms,
 } from '@tabler/icons-react'
 import useAuthStore from '@/store/auth'
 
-const navItems = [
-  { to: '/dashboard',   icon: IconLayoutDashboard, label: 'Dashboard' },
-  { to: '/clients',     icon: IconUsers,           label: 'Clients' },
-  { to: '/schedule',    icon: IconCalendar,        label: 'Schedule' },
-  { to: '/visits',      icon: IconClipboardList,   label: 'Visits' },
-  { to: '/notes',       icon: IconFileDescription, label: 'Progress Notes' },
-  { to: '/forms',       icon: IconFileDescription, label: 'Forms Engine' },
-  { to: '/claims',      icon: IconReceipt2,        label: 'Claims' },
-  { to: '/payroll',     icon: IconCoin,            label: 'Payroll' },
-  { to: '/map',         icon: IconMap,             label: 'Live Map' },
-  { to: '/audit',       icon: IconShieldCheck,     label: 'Audit' },
-  { to: '/settings',    icon: IconSettings,        label: 'Settings' },
+// Each nav item optionally specifies a permission key.
+// If no permKey → always visible (e.g. Settings is always shown, filtered inside).
+const NAV_ITEMS = [
+  { to: '/dashboard',   icon: IconLayoutDashboard, label: 'Dashboard',       permKey: 'view_dashboard' },
+  { to: '/clients',     icon: IconUsers,           label: 'Clients',         permKey: 'view_clients' },
+  { to: '/schedule',    icon: IconCalendar,        label: 'Schedule',        permKey: 'view_schedule' },
+  { to: '/visits',      icon: IconClipboardList,   label: 'Visits',          permKey: 'view_visits' },
+  { to: '/notes',       icon: IconFileDescription, label: 'Progress Notes',  permKey: 'view_notes' },
+  { to: '/forms',       icon: IconFileDescription, label: 'Forms Engine',    permKey: 'view_forms' },
+  { to: '/claims',      icon: IconReceipt2,        label: 'Claims',          permKey: 'view_claims' },
+  { to: '/payroll',     icon: IconCoin,            label: 'Payroll',         permKey: 'view_payroll' },
+  { to: '/map',         icon: IconMap,             label: 'Live Map',        permKey: 'view_map' },
+  { to: '/audit',       icon: IconShieldCheck,     label: 'Audit',           permKey: 'view_audit' },
+  { to: '/settings',    icon: IconSettings,        label: 'Settings',        permKey: 'view_settings' },
 ]
 
 export default function Sidebar() {
-  const { user, logout } = useAuthStore()
+  const { user, logout, permissions } = useAuthStore()
+  const permSet = new Set(permissions)
+
+  // Determine which items to show.
+  // If permissions haven't loaded yet (empty array) AND user role is known,
+  // fall back to showing all items so the UI doesn't flicker blank on first load.
+  const permsLoaded = permissions.length > 0
+  const visibleItems = NAV_ITEMS.filter(item => {
+    if (!item.permKey) return true               // always visible
+    if (!permsLoaded) return true                // not loaded yet — show all
+    return permSet.has(item.permKey)
+  })
 
   return (
     <aside
@@ -45,7 +59,7 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-3 flex flex-col gap-0.5 overflow-y-auto">
-        {navItems.map(({ to, icon: Icon, label }) => (
+        {visibleItems.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}

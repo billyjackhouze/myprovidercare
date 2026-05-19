@@ -4,7 +4,7 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from models.base import Base, TimestampMixin, UUIDPrimaryKey
 
-VALID_ROLES = ("owner", "supervisor", "case_manager", "billing", "intake", "auditor")
+VALID_ROLES = ("developer", "admin", "owner", "supervisor", "case_manager", "billing", "intake", "auditor", "staff")
 
 
 class User(Base, UUIDPrimaryKey, TimestampMixin):

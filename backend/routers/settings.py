@@ -1,10 +1,11 @@
-"""Settings router — org settings, user management, password change."""
+"""Settings router — org settings, user management, password change, RBAC."""
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 import bcrypt as _bcrypt
 import uuid
+from typing import Optional
 
 from database import get_db
 from dependencies import get_current_user, require_roles
@@ -252,3 +253,237 @@ async def change_password(
     current_user.hashed_password = hash_password(body.new_password)
     await db.commit()
     return {"ok": True}
+
+
+# ── RBAC: Permissions & Role Defaults ─────────────────────────────────────────
+
+@router.get("/permissions")
+async def list_permissions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """All permissions in the system, grouped by section."""
+    rows = await db.execute(
+        text("SELECT * FROM permissions ORDER BY order_index, key")
+    )
+    perms = [dict(r) for r in rows.mappings().all()]
+    # Group by section
+    sections: dict = {}
+    for p in perms:
+        sec = p["section"]
+        if sec not in sections:
+            sections[sec] = []
+        sections[sec].append(p)
+    return {"permissions": perms, "by_section": sections}
+
+
+@router.get("/roles")
+async def list_role_defaults(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Returns each role with the permission keys it has by default."""
+    rows = await db.execute(
+        text("SELECT role, permission_key, granted FROM role_permissions ORDER BY role, permission_key")
+    )
+    result: dict = {}
+    for r in rows.mappings().all():
+        role = r["role"]
+        if role not in result:
+            result[role] = []
+        if r["granted"]:
+            result[role].append(r["permission_key"])
+    return result
+
+
+class RolePermissionUpdate(BaseModel):
+    permission_key: str
+    granted: bool
+
+
+@router.put("/roles/{role}/permissions")
+async def update_role_permission(
+    role: str,
+    body: RolePermissionUpdate,
+    current_user: User = Depends(require_roles("developer", "admin", "owner")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Grant or revoke a permission for a role."""
+    if role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail=f"Unknown role: {role}")
+
+    await db.execute(
+        text("""
+            INSERT INTO role_permissions (role, permission_key, granted)
+            VALUES (:role, :permission_key, :granted)
+            ON CONFLICT (role, permission_key) DO UPDATE SET granted = :granted
+        """),
+        {"role": role, "permission_key": body.permission_key, "granted": body.granted}
+    )
+    await db.commit()
+    return {"ok": True}
+
+
+# ── RBAC: Per-User Permission Overrides ───────────────────────────────────────
+
+@router.get("/users/{user_id}/permissions")
+async def get_user_permissions(
+    user_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns the effective permissions for a user:
+    - All permissions from the system
+    - Each one has: role_default (T/F), override (granted/denied/null), effective (T/F)
+    """
+    # Get target user
+    user_row = await db.execute(
+        select(User).where(User.id == user_id, User.org_id == current_user.org_id)
+    )
+    target = user_row.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # All permissions
+    perm_rows = await db.execute(
+        text("SELECT * FROM permissions ORDER BY order_index, key")
+    )
+    all_perms = {r["key"]: dict(r) for r in perm_rows.mappings().all()}
+
+    # Role defaults for this user's role
+    role_rows = await db.execute(
+        text("SELECT permission_key, granted FROM role_permissions WHERE role = :role"),
+        {"role": target.role}
+    )
+    role_defaults = {r["permission_key"]: r["granted"] for r in role_rows.mappings().all()}
+
+    # User-specific overrides
+    override_rows = await db.execute(
+        text("SELECT permission_key, state FROM user_permissions WHERE user_id = :user_id"),
+        {"user_id": user_id}
+    )
+    overrides = {r["permission_key"]: r["state"] for r in override_rows.mappings().all()}
+
+    # Build effective list
+    result = []
+    for key, perm in all_perms.items():
+        role_default = role_defaults.get(key, False)
+        override = overrides.get(key)  # 'granted' | 'denied' | None
+
+        if override == "granted":
+            effective = True
+        elif override == "denied":
+            effective = False
+        else:
+            effective = role_default
+
+        result.append({
+            **perm,
+            "role_default":  role_default,
+            "override":      override,
+            "effective":     effective,
+        })
+
+    return {
+        "user_id":   str(user_id),
+        "user_name": target.full_name,
+        "role":      target.role,
+        "permissions": result,
+    }
+
+
+class UserPermissionOverride(BaseModel):
+    permission_key: str
+    state: Optional[str] = None  # 'granted' | 'denied' | None (None = remove override)
+
+
+@router.put("/users/{user_id}/permissions")
+async def set_user_permission_override(
+    user_id: uuid.UUID,
+    body: UserPermissionOverride,
+    current_user: User = Depends(require_roles("developer", "admin", "owner", "supervisor")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set or clear a per-user permission override."""
+    # Verify user is in the same org
+    user_row = await db.execute(
+        select(User).where(User.id == user_id, User.org_id == current_user.org_id)
+    )
+    if not user_row.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if body.state is None:
+        # Remove override — fall back to role default
+        await db.execute(
+            text("DELETE FROM user_permissions WHERE user_id = :user_id AND permission_key = :key"),
+            {"user_id": user_id, "key": body.permission_key}
+        )
+    else:
+        if body.state not in ("granted", "denied"):
+            raise HTTPException(status_code=400, detail="state must be 'granted', 'denied', or null")
+        await db.execute(
+            text("""
+                INSERT INTO user_permissions (org_id, user_id, permission_key, state, granted_by)
+                VALUES (:org_id, :user_id, :key, :state, :granted_by)
+                ON CONFLICT (user_id, permission_key) DO UPDATE
+                  SET state = :state, granted_by = :granted_by
+            """),
+            {
+                "org_id":     current_user.org_id,
+                "user_id":    user_id,
+                "key":        body.permission_key,
+                "state":      body.state,
+                "granted_by": current_user.id,
+            }
+        )
+
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Permission check for current user (used by frontend) ──────────────────────
+
+@router.get("/me/permissions")
+async def get_my_permissions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns effective permission keys for the authenticated user.
+    Frontend uses this to show/hide nav items and UI sections.
+    """
+    # Role defaults
+    role_rows = await db.execute(
+        text("SELECT permission_key, granted FROM role_permissions WHERE role = :role"),
+        {"role": current_user.role}
+    )
+    role_defaults = {r["permission_key"]: r["granted"] for r in role_rows.mappings().all()}
+
+    # User overrides
+    override_rows = await db.execute(
+        text("SELECT permission_key, state FROM user_permissions WHERE user_id = :user_id"),
+        {"user_id": current_user.id}
+    )
+    overrides = {r["permission_key"]: r["state"] for r in override_rows.mappings().all()}
+
+    # Merge: overrides win
+    effective = {}
+    for key, granted in role_defaults.items():
+        override = overrides.get(key)
+        if override == "granted":
+            effective[key] = True
+        elif override == "denied":
+            effective[key] = False
+        else:
+            effective[key] = granted
+
+    # Also apply any overrides for perms not in role defaults
+    for key, state in overrides.items():
+        if key not in effective:
+            effective[key] = state == "granted"
+
+    return {
+        "role": current_user.role,
+        "permissions": [k for k, v in effective.items() if v],
+    }
