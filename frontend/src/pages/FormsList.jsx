@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   IconPlus, IconSparkles, IconFileDescription, IconLoader2,
-  IconTrash, IconSettings, IconX, IconList, IconCheck,
+  IconTrash, IconSettings, IconX, IconList, IconCheck, IconPencil,
 } from '@tabler/icons-react'
 import toast from 'react-hot-toast'
 import api from '@/lib/api'
@@ -71,9 +71,18 @@ function FormSettingsModal({ form, onClose, onSaved }) {
             <h2 className="text-sm font-semibold text-heading">{form.name}</h2>
             <p className="text-xs text-muted mt-0.5">Form settings</p>
           </div>
-          <button onClick={onClose} className="text-muted hover:text-heading p-1">
-            <IconX size={18} />
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              to={`/forms/${form.id}/edit`}
+              className="text-xs text-primary hover:underline flex items-center gap-1"
+              onClick={onClose}
+            >
+              <IconPencil size={12} /> Edit Fields
+            </Link>
+            <button onClick={onClose} className="text-muted hover:text-heading p-1">
+              <IconX size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="px-5 py-4 space-y-5">
@@ -163,6 +172,7 @@ function FormSettingsModal({ form, onClose, onSaved }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function FormsList() {
+  const navigate                      = useNavigate()
   const [forms, setForms]             = useState([])
   const [loading, setLoading]         = useState(true)
   const [editingForm, setEditingForm] = useState(null)

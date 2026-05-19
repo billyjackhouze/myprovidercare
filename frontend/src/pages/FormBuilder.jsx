@@ -23,6 +23,7 @@ const FIELD_TYPES = [
   { value: 'radio',        label: 'Radio Buttons' },
   { value: 'boolean',      label: 'Yes / No' },
   { value: 'signature',    label: 'Signature' },
+  { value: 'calculated',   label: '🧮 Calculated' },
   { value: 'client_name',  label: '⚡ Client Name' },
   { value: 'cm_name',      label: '⚡ CM Name' },
   { value: 'visit_date',   label: '⚡ Visit Date' },
@@ -325,6 +326,24 @@ function FieldBuilder({ field, onUpdate, onRemove, hasListView, inListColumns, o
             <input type="checkbox" id={`req-${field.field_key}`} checked={field.is_required} onChange={e => onUpdate({ ...field, is_required: e.target.checked })} />
             <label htmlFor={`req-${field.field_key}`} className="text-sm cursor-pointer">Required</label>
           </div>
+          {field.field_type === 'calculated' && (
+            <div className="col-span-2">
+              <label className="field-label">
+                Formula
+                <span className="ml-1 font-normal text-muted">(use other field keys, e.g. <code className="bg-page px-1 rounded text-xs">hours * 4</code>)</span>
+              </label>
+              <input
+                className="field-input font-mono text-xs"
+                value={field.validation?.formula || ''}
+                placeholder="e.g.  hours * 4   or   total_units / 4"
+                onChange={e => onUpdate({ ...field, validation: { ...(field.validation || {}), formula: e.target.value } })}
+              />
+              <p className="text-xs text-muted mt-1">
+                Reference any field in this form by its field key. Use standard math: + − * / ( )<br/>
+                1 unit = 15 min example: <code className="bg-page px-0.5 rounded">hours * 4</code> → units
+              </p>
+            </div>
+          )}
           {['dropdown', 'radio'].includes(field.field_type) && (
             <div className="col-span-2">
               <label className="field-label">Options</label>

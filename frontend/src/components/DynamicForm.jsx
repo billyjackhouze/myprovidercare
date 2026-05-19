@@ -286,10 +286,48 @@ function SingleForm({ schema, clientId, formSchemaId, response, setResponse, rea
   )
 }
 
+// ─── Formula evaluator ────────────────────────────────────────────────────────
+function evalFormula(formula, values) {
+  try {
+    // Replace each known field key with its numeric value (longest first to avoid partial matches)
+    let expr = formula
+    Object.entries(values)
+      .sort((a, b) => b[0].length - a[0].length)
+      .forEach(([key, val]) => {
+        const num = parseFloat(val) || 0
+        expr = expr.replace(new RegExp(`\\b${key}\\b`, 'g'), num)
+      })
+    // eslint-disable-next-line no-new-func
+    const result = Function('"use strict"; return (' + expr + ')')()
+    if (!isFinite(result)) return null
+    return Math.round(result * 10000) / 10000   // 4 decimal places
+  } catch { return null }
+}
+
+function applyCalculations(next, allFields) {
+  allFields.forEach(f => {
+    const key  = f.field_key || f.key
+    const type = f.field_type || f.type
+    const formula = f.validation?.formula
+    if (type === 'calculated' && formula) {
+      const result = evalFormula(formula, next)
+      next[key] = result ?? ''
+    }
+  })
+  return next
+}
+
 // ─── Shared form body ─────────────────────────────────────────────────────────
 function FormBody({ schema, response, setResponse, readOnly, saving, saved, onSave, onBack, isNew }) {
-  const sections = schema.sections || []
-  const handleChange = (key, val) => setResponse(prev => ({ ...prev, [key]: val }))
+  const sections  = schema.sections || []
+  const allFields = sections.flatMap(s => s.fields || [])
+
+  const handleChange = (key, val) => {
+    setResponse(prev => {
+      const next = { ...prev, [key]: val }
+      return applyCalculations(next, allFields)
+    })
+  }
 
   return (
     <div>
@@ -413,6 +451,21 @@ function FieldInput({ type, field, value, onChange, readOnly }) {
           {value && <p className="text-xs text-muted mt-1">Electronically signed</p>}
         </div>
       )
+    case 'calculated': {
+      const displayVal = value == null || value === '' ? '—' : value
+      const formula = field.validation?.formula
+      return (
+        <div
+          className="field-input bg-teal-50 border-teal-200 text-teal-900 font-semibold select-none cursor-default"
+          title={formula ? `= ${formula}` : 'Calculated'}
+        >
+          {displayVal}
+          {formula && (
+            <span className="ml-2 text-xs font-normal text-teal-500 opacity-70">= {formula}</span>
+          )}
+        </div>
+      )
+    }
     case 'heading':
       return <div className="col-span-12 border-b border-border pb-1"><h3 className="text-sm font-semibold text-heading">{field.label}</h3></div>
     case 'paragraph':

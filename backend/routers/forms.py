@@ -50,6 +50,7 @@ class ExtractedField(BaseModel):
     is_required: bool = False
     options: list[ExtractedFieldOption] = []
     placeholder: Optional[str] = None
+    validation: Optional[dict] = None   # e.g. {"formula": "hours * 4"}
     ai_confidence: Optional[float] = None
     print_x: Optional[float] = None
     print_y: Optional[float] = None
@@ -351,6 +352,7 @@ async def save_ingested_form(
             is_required=fld.is_required,
             options=[o.model_dump() for o in fld.options],
             placeholder=fld.placeholder,
+            validation=fld.validation,
             ai_confidence=fld.ai_confidence,
             print_x=fld.print_x,
             print_y=fld.print_y,
@@ -473,6 +475,77 @@ async def get_form(
         "list_columns": (form.workflow_config or {}).get("list_columns", []),
         "sections": sections_out,
     }
+
+
+class AddFieldsRequest(BaseModel):
+    sections: list[ExtractedSection] = []
+    fields: list[ExtractedField]
+
+
+@router.post("/{form_id}/fields", status_code=201)
+async def add_fields_to_form(
+    form_id: uuid.UUID,
+    body: AddFieldsRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add new sections and fields to an existing form."""
+    result = await db.execute(
+        select(Form)
+        .options(selectinload(Form.sections).selectinload(FormSection.fields))
+        .where(Form.id == form_id, Form.org_id == current_user.org_id)
+    )
+    form = result.scalar_one_or_none()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+
+    # Build existing section key → id map
+    section_map: dict[str, uuid.UUID] = {s.section_key: s.id for s in form.sections}
+
+    # Create any new sections
+    for sec in body.sections:
+        if sec.section_key not in section_map:
+            section = FormSection(
+                org_id=current_user.org_id,
+                form_id=form.id,
+                section_key=sec.section_key,
+                title=sec.title,
+                order_index=sec.order_index,
+                is_repeating=sec.is_repeating,
+            )
+            db.add(section)
+            await db.flush()
+            section_map[sec.section_key] = section.id
+
+    # Determine highest existing order_index per section
+    max_order: dict[str, int] = {}
+    for sec in form.sections:
+        for fld in sec.fields:
+            key = sec.section_key
+            max_order[key] = max(max_order.get(key, -1), fld.order_index)
+
+    # Add new fields
+    for fld in body.fields:
+        next_order = max_order.get(fld.section_key, -1) + 1
+        max_order[fld.section_key] = next_order
+        field = FormField(
+            org_id=current_user.org_id,
+            form_id=form.id,
+            section_id=section_map.get(fld.section_key),
+            field_key=fld.field_key,
+            label=fld.label,
+            field_type=fld.field_type,
+            order_index=next_order,
+            is_required=fld.is_required,
+            options=[o.model_dump() for o in fld.options],
+            placeholder=fld.placeholder,
+            validation=fld.validation,
+            ai_confidence=fld.ai_confidence,
+        )
+        db.add(field)
+
+    await db.commit()
+    return {"added_fields": len(body.fields)}
 
 
 class UpdateFormRequest(BaseModel):

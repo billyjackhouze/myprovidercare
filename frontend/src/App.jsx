@@ -8,6 +8,7 @@ import Login from '@/pages/Login'
 import Dashboard from '@/pages/Dashboard'
 import FormIngestion from '@/pages/FormIngestion'
 import FormBuilder from '@/pages/FormBuilder'
+import FormEdit from '@/pages/FormEdit'
 import FormsList from '@/pages/FormsList'
 import ClientList from '@/pages/ClientList'
 import ClientDetail from '@/pages/ClientDetail'
@@ -33,7 +34,8 @@ export default function App() {
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/forms" element={<ProtectedRoute><FormsList /></ProtectedRoute>} />
       <Route path="/forms/ingest" element={<ProtectedRoute><FormIngestion /></ProtectedRoute>} />
-      <Route path="/forms/build" element={<ProtectedRoute><FormBuilder /></ProtectedRoute>} />
+      <Route path="/forms/build"      element={<ProtectedRoute><FormBuilder /></ProtectedRoute>} />
+      <Route path="/forms/:id/edit"   element={<ProtectedRoute><FormEdit /></ProtectedRoute>} />
 
       {/* Clients */}
       <Route path="/clients"           element={<ProtectedRoute><ClientList /></ProtectedRoute>} />
