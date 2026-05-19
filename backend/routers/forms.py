@@ -475,6 +475,57 @@ async def get_form(
     }
 
 
+class UpdateFormRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    has_list_view: Optional[bool] = None
+    list_columns: Optional[list] = None  # [{field_key, label}]
+
+
+@router.put("/{form_id}", response_model=FormResponse)
+async def update_form(
+    form_id: uuid.UUID,
+    body: UpdateFormRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update form metadata, list view settings, and list columns."""
+    result = await db.execute(
+        select(Form)
+        .options(selectinload(Form.sections).selectinload(FormSection.fields))
+        .where(Form.id == form_id, Form.org_id == current_user.org_id)
+    )
+    form = result.scalar_one_or_none()
+    if not form:
+        raise HTTPException(status_code=404, detail="Form not found")
+
+    if body.name is not None:
+        form.name = body.name
+    if body.description is not None:
+        form.description = body.description
+    if body.has_list_view is not None:
+        form.has_list_view = body.has_list_view
+    if body.list_columns is not None:
+        form.workflow_config = {**(form.workflow_config or {}), "list_columns": body.list_columns}
+
+    await db.commit()
+    await db.refresh(form)
+
+    section_count = len(form.sections)
+    field_count = sum(len(s.fields) for s in form.sections)
+    return FormResponse(
+        id=form.id,
+        name=form.name,
+        form_type=form.form_type,
+        description=form.description,
+        version=form.version,
+        is_active=form.is_active,
+        ai_extracted=form.ai_extracted,
+        section_count=section_count,
+        field_count=field_count,
+    )
+
+
 @router.delete("/{form_id}", status_code=204)
 async def delete_form(
     form_id: uuid.UUID,
