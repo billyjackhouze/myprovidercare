@@ -5,6 +5,7 @@ import {
   IconTrash, IconPill, IconAlertTriangle, IconUser, IconSettings,
   IconX, IconLayoutColumns,
 } from '@tabler/icons-react'
+import toast from 'react-hot-toast'
 import api from '@/lib/api'
 import DynamicForm from '@/components/DynamicForm'
 import IntakeTab from '@/components/IntakeTab'
@@ -341,7 +342,10 @@ function ManageTabsPanel({ clientId, activeTabs, availableForms, onClose, onRefr
         label: tab.label,
         form_schema_id: null,
       })
+      toast.success(`"${tab.label}" tab added`)
       onRefresh()
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to add tab')
     } finally { setAdding(null) }
   }
 
@@ -352,14 +356,25 @@ function ManageTabsPanel({ clientId, activeTabs, availableForms, onClose, onRefr
         form_schema_id: form.id,
         label: form.name,
       })
+      toast.success(`"${form.name}" tab added`)
       onRefresh()
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to add tab')
     } finally { setAdding(null) }
   }
 
+  const [removing, setRemoving] = useState(null)
+
   const removeTab = async (tab) => {
-    await api.delete(`/workflow/clients/${clientId}/tabs/${tab.tab_key}`)
-    onRefresh()
-    if (setActiveTab) setActiveTab('general')
+    setRemoving(tab.tab_key)
+    try {
+      await api.delete(`/workflow/clients/${clientId}/tabs/${tab.tab_key}`)
+      toast.success(`"${tab.label}" removed`)
+      onRefresh()
+      if (setActiveTab) setActiveTab(prev => prev === tab.tab_key ? 'general' : prev)
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to remove tab')
+    } finally { setRemoving(null) }
   }
 
   return (
@@ -385,11 +400,14 @@ function ManageTabsPanel({ clientId, activeTabs, availableForms, onClose, onRefr
                 </span>
                 {tab.tab_key !== 'general' && (
                   <button
-                    className="text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                    className="text-muted hover:text-red-500 transition-colors shrink-0"
                     onClick={() => removeTab(tab)}
-                    title="Remove"
+                    title="Remove tab"
+                    disabled={removing === tab.tab_key}
                   >
-                    <IconX size={13} />
+                    {removing === tab.tab_key
+                      ? <IconLoader2 size={13} className="animate-spin" />
+                      : <IconX size={13} />}
                   </button>
                 )}
               </div>
