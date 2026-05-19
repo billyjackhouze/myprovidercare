@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   IconLoader2, IconDeviceFloppy, IconArrowLeft, IconPlus,
   IconTrash, IconPill, IconAlertTriangle, IconUser, IconSettings,
+  IconX, IconLayoutColumns,
 } from '@tabler/icons-react'
 import api from '@/lib/api'
 import DynamicForm from '@/components/DynamicForm'
@@ -300,6 +301,114 @@ function TreatmentPlansPanel({ clientId }) {
   )
 }
 
+// ─── Manage tabs helpers ──────────────────────────────────────────────────────
+
+const ALL_BUILTIN_TABS = [
+  { tab_key: 'intake',       label: 'Intake' },
+  { tab_key: 'referral',     label: 'Referral' },
+  { tab_key: 'hospital',     label: 'Hospital Discharge' },
+  { tab_key: 'auths',        label: 'Auths' },
+  { tab_key: 'superbill',    label: 'Super Bill' },
+  { tab_key: 'therapy',      label: 'Therapy Note' },
+  { tab_key: 'ansa',         label: 'ANSA' },
+  { tab_key: 'treatment',    label: 'Treatment Plan' },
+  { tab_key: 'bio',          label: 'BIO' },
+  { tab_key: 'nursing',      label: 'Nursing' },
+  { tab_key: 'risk',         label: 'Risk Screening' },
+  { tab_key: 'notes',        label: 'Progress Notes' },
+  { tab_key: 'appts',        label: 'Appointments' },
+  { tab_key: 'attachments',  label: 'Attachments' },
+  { tab_key: 'discharge',    label: 'Discharge' },
+  { tab_key: 'contacts',     label: 'Contact Notes' },
+]
+
+function AddFormTabRow({ forms, clientId, onAdded }) {
+  const [selectedId, setSelectedId] = useState('')
+  const [label, setLabel] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const handleAdd = async () => {
+    if (!selectedId || !label.trim()) return
+    setSaving(true)
+    try {
+      await api.post(`/workflow/clients/${clientId}/tabs`, {
+        form_schema_id: selectedId,
+        label: label.trim(),
+      })
+      onAdded()
+    } catch {
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <select
+        className="field-input text-xs"
+        value={selectedId}
+        onChange={e => {
+          setSelectedId(e.target.value)
+          const f = forms.find(f => f.id === e.target.value)
+          if (f) setLabel(f.name)
+        }}
+      >
+        <option value="">Select form…</option>
+        {forms.map(f => (
+          <option key={f.id} value={f.id}>{f.name}</option>
+        ))}
+      </select>
+      {selectedId && (
+        <div className="flex gap-2">
+          <input
+            className="field-input text-xs flex-1"
+            placeholder="Tab label"
+            value={label}
+            onChange={e => setLabel(e.target.value)}
+          />
+          <button
+            className="btn-primary text-xs px-3 py-1.5 shrink-0"
+            onClick={handleAdd}
+            disabled={saving || !label.trim()}
+          >
+            {saving ? <IconLoader2 size={12} className="animate-spin" /> : 'Add'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BuiltinTabsSection({ clientId, activeTabs, onAdded }) {
+  const missing = ALL_BUILTIN_TABS.filter(b => !activeTabs.find(t => t.tab_key === b.tab_key))
+  if (!missing.length) return null
+
+  return (
+    <div className="px-4 pt-3 pb-4 border-t border-border">
+      <p className="text-xs text-muted mb-2 font-medium uppercase tracking-wide">Add Built-in Tab</p>
+      <div className="space-y-1">
+        {missing.map(tab => (
+          <button
+            key={tab.tab_key}
+            className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-page text-muted hover:text-heading flex items-center gap-2"
+            onClick={async () => {
+              await api.post(`/workflow/clients/${clientId}/tabs`, {
+                tab_key: tab.tab_key,
+                label: tab.label,
+                form_schema_id: null,
+              })
+              onAdded()
+            }}
+          >
+            <IconPlus size={11} /> {tab.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+
 // ─── Main ClientDetail component ─────────────────────────────────────────────
 export default function ClientDetail() {
   const { clientId } = useParams()
@@ -315,6 +424,16 @@ export default function ClientDetail() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState(null)
+  const [showManageTabs, setShowManageTabs] = useState(false)
+  const [availableForms, setAvailableForms] = useState([])
+
+  const loadClientTabs = () => {
+    if (!isNew && clientId) {
+      api.get(`/workflow/clients/${clientId}/tabs`)
+        .then(r => setWorkflowTabs(r.data.filter(t => t.is_visible)))
+        .catch(() => {})
+    }
+  }
 
   // Load client + dropdowns — reset state on every navigation
   useEffect(() => {
@@ -324,13 +443,17 @@ export default function ClientDetail() {
 
     api.get('/clients/dropdowns/client_general').then(r => setDropdowns(r.data)).catch(() => {})
     api.get('/clients/dropdowns/client_medications').then(r => setMedDropdowns(r.data)).catch(() => {})
-    api.get('/workflow/tabs').then(r => setWorkflowTabs(r.data.filter(t => t.is_visible))).catch(() => {})
+    api.get('/forms').then(r => setAvailableForms(r.data || [])).catch(() => {})
 
     if (!isNew) {
       setLoading(true)
-      api.get(`/clients/${clientId}`)
-        .then(r => setClient(r.data))
-        .catch(() => setError('Client not found.'))
+      Promise.all([
+        api.get(`/clients/${clientId}`),
+        api.get(`/workflow/clients/${clientId}/tabs`),
+      ]).then(([clientRes, tabRes]) => {
+        setClient(clientRes.data)
+        setWorkflowTabs(tabRes.data.filter(t => t.is_visible))
+      }).catch(() => setError('Client not found.'))
         .finally(() => setLoading(false))
     } else {
       setLoading(false)
@@ -409,17 +532,88 @@ export default function ClientDetail() {
           ))}
         </nav>
 
-        {/* Workflow settings link */}
-        <div className="p-2 border-t border-border">
-          <button
-            onClick={() => navigate('/settings/workflow')}
-            className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs text-muted hover:text-heading hover:bg-page rounded transition-colors"
-          >
-            <IconSettings size={12} />
-            Manage tabs
-          </button>
-        </div>
+        {/* Manage tabs button */}
+        {!isNew && (
+          <div className="p-2 border-t border-border">
+            <button
+              onClick={() => setShowManageTabs(true)}
+              className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs text-muted hover:text-heading hover:bg-page rounded transition-colors"
+            >
+              <IconLayoutColumns size={12} />
+              Manage tabs
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Manage Tabs slide-over panel */}
+      {showManageTabs && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setShowManageTabs(false)} />
+          <div className="relative w-80 bg-card border-l border-border flex flex-col shadow-xl h-full overflow-y-auto">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card sticky top-0 z-10">
+              <h2 className="text-sm font-semibold text-heading">Manage Tabs</h2>
+              <button onClick={() => setShowManageTabs(false)} className="text-muted hover:text-heading">
+                <IconX size={16} />
+              </button>
+            </div>
+
+            {/* Current tabs */}
+            <div className="px-4 pt-4 pb-2">
+              <p className="text-xs text-muted mb-2 font-medium uppercase tracking-wide">Active Tabs</p>
+              <div className="space-y-1">
+                {workflowTabs.map(tab => (
+                  <div key={tab.tab_key} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-page group">
+                    <span className="text-sm text-heading">
+                      {tab.label}
+                      {tab.tab_type === 'custom' && <span className="ml-1 text-xs text-muted">✨</span>}
+                    </span>
+                    {tab.tab_key !== 'general' && (
+                      <button
+                        className="text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                        title="Remove tab"
+                        onClick={async () => {
+                          await api.delete(`/workflow/clients/${clientId}/tabs/${tab.tab_key}`)
+                          loadClientTabs()
+                          if (activeTab === tab.tab_key) setActiveTab('general')
+                        }}
+                      >
+                        <IconX size={13} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Add form as tab */}
+            <div className="px-4 pt-3 pb-4 border-t border-border mt-2">
+              <p className="text-xs text-muted mb-2 font-medium uppercase tracking-wide">Add Form Tab</p>
+              {availableForms.filter(f => !workflowTabs.find(t => t.form_schema_id === f.id)).length === 0 ? (
+                <p className="text-xs text-muted">
+                  All forms are already added.{' '}
+                  <button className="text-primary underline" onClick={() => { setShowManageTabs(false); navigate('/forms/ingest') }}>
+                    Ingest a new form
+                  </button>
+                </p>
+              ) : (
+                <AddFormTabRow
+                  forms={availableForms.filter(f => !workflowTabs.find(t => t.form_schema_id === f.id))}
+                  clientId={clientId}
+                  onAdded={() => { loadClientTabs(); setShowManageTabs(false) }}
+                />
+              )}
+            </div>
+
+            {/* Add built-in tab back */}
+            <BuiltinTabsSection
+              clientId={clientId}
+              activeTabs={workflowTabs}
+              onAdded={loadClientTabs}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex-1 overflow-y-auto">

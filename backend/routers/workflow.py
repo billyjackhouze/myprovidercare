@@ -173,19 +173,19 @@ async def add_custom_tab(
 
 
 @router.delete("/tabs/{tab_key}")
-async def remove_custom_tab(
+async def remove_org_tab(
     tab_key: str,
     current_user=Depends(require_supervisor_or_above),
     db: AsyncSession = Depends(get_db),
 ):
-    """Remove a custom tab (cannot remove built-in locked tabs)."""
+    """Remove any non-locked tab from org defaults."""
     result = await db.execute(text("""
         DELETE FROM workflow_tabs
-        WHERE org_id = :org_id AND tab_key = :tab_key AND tab_type = 'custom'
+        WHERE org_id = :org_id AND tab_key = :tab_key AND is_locked = false
         RETURNING id
     """), {"org_id": str(current_user.org_id), "tab_key": tab_key})
     if not result.rowcount:
-        raise HTTPException(status_code=404, detail="Tab not found or cannot be removed")
+        raise HTTPException(status_code=404, detail="Tab not found or is locked")
     await db.commit()
     return {"ok": True}
 
@@ -272,5 +272,116 @@ async def upsert_form_response(
             "user_id": str(current_user.id),
         })
 
+    await db.commit()
+    return {"ok": True}
+
+
+# ─── Per-client tab configuration ────────────────────────────────────────────
+
+@router.get("/clients/{client_id}/tabs")
+async def get_client_tabs(
+    client_id: str,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return this client's tab list. Seeds from org defaults on first access."""
+    rows = (await db.execute(text("""
+        SELECT id, tab_key, label, tab_type, form_schema_id, sort_order, is_visible
+        FROM client_tabs
+        WHERE client_id = :cid AND org_id = :oid
+        ORDER BY sort_order, label
+    """), {"cid": client_id, "oid": str(current_user.org_id)})).mappings().all()
+
+    if not rows:
+        # Seed from org workflow_tabs defaults
+        await db.execute(text("""
+            INSERT INTO client_tabs
+                (org_id, client_id, tab_key, label, tab_type, form_schema_id, sort_order, is_visible)
+            SELECT :oid, :cid, tab_key, label, tab_type, form_schema_id, sort_order, is_visible
+            FROM workflow_tabs
+            WHERE org_id = :oid
+            ON CONFLICT (client_id, tab_key) DO NOTHING
+        """), {"cid": client_id, "oid": str(current_user.org_id)})
+        await db.commit()
+        rows = (await db.execute(text("""
+            SELECT id, tab_key, label, tab_type, form_schema_id, sort_order, is_visible
+            FROM client_tabs
+            WHERE client_id = :cid AND org_id = :oid
+            ORDER BY sort_order, label
+        """), {"cid": client_id, "oid": str(current_user.org_id)})).mappings().all()
+
+    return [dict(r) for r in rows]
+
+
+@router.post("/clients/{client_id}/tabs")
+async def add_client_tab(
+    client_id: str,
+    body: dict,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a custom form tab to a specific client."""
+    form_schema_id = body.get("form_schema_id")
+    label = body.get("label", "Custom Form")
+    tab_key = body.get("tab_key") or f"custom_{form_schema_id[:8] if form_schema_id else 'tab'}"
+
+    max_order = (await db.execute(text(
+        "SELECT COALESCE(MAX(sort_order), 0) FROM client_tabs WHERE client_id = :cid"
+    ), {"cid": client_id})).scalar_one()
+
+    await db.execute(text("""
+        INSERT INTO client_tabs
+            (org_id, client_id, tab_key, label, tab_type, form_schema_id, sort_order, is_visible)
+        VALUES (:oid, :cid, :tab_key, :label, 'custom', :form_schema_id, :sort_order, true)
+        ON CONFLICT (client_id, tab_key) DO UPDATE
+            SET label = EXCLUDED.label, is_visible = true
+    """), {
+        "oid": str(current_user.org_id),
+        "cid": client_id,
+        "tab_key": tab_key,
+        "label": label,
+        "form_schema_id": form_schema_id,
+        "sort_order": max_order + 1,
+    })
+    await db.commit()
+    return {"ok": True, "tab_key": tab_key}
+
+
+@router.delete("/clients/{client_id}/tabs/{tab_key}")
+async def remove_client_tab(
+    client_id: str,
+    tab_key: str,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove any tab from a client except General Info."""
+    if tab_key == "general":
+        raise HTTPException(status_code=400, detail="General Info tab cannot be removed")
+    await db.execute(text("""
+        DELETE FROM client_tabs
+        WHERE client_id = :cid AND org_id = :oid AND tab_key = :tab_key
+    """), {"cid": client_id, "oid": str(current_user.org_id), "tab_key": tab_key})
+    await db.commit()
+    return {"ok": True}
+
+
+@router.put("/clients/{client_id}/tabs/reorder")
+async def reorder_client_tabs(
+    client_id: str,
+    body: TabsReorder,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Reorder a client's tabs."""
+    for t in body.tabs:
+        await db.execute(text("""
+            UPDATE client_tabs SET sort_order = :sort_order, updated_at = NOW()
+            WHERE client_id = :cid AND org_id = :oid AND tab_key = :tab_key
+        """), {
+            "cid": client_id,
+            "oid": str(current_user.org_id),
+            "tab_key": t.get("tab_key"),
+            "sort_order": t.get("sort_order", 0),
+        })
     await db.commit()
     return {"ok": True}
