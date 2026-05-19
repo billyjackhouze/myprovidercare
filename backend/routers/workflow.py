@@ -293,13 +293,11 @@ async def get_client_tabs(
     """), {"cid": client_id, "oid": str(current_user.org_id)})).mappings().all()
 
     if not rows:
-        # Seed from org workflow_tabs defaults
+        # Seed with General Info only — all other tabs are added per-client as needed
         await db.execute(text("""
             INSERT INTO client_tabs
-                (org_id, client_id, tab_key, label, tab_type, form_schema_id, sort_order, is_visible)
-            SELECT :oid, :cid, tab_key, label, tab_type, form_schema_id, sort_order, is_visible
-            FROM workflow_tabs
-            WHERE org_id = :oid
+                (org_id, client_id, tab_key, label, tab_type, sort_order, is_visible)
+            VALUES (:oid, :cid, 'general', 'General Info', 'builtin', 1, true)
             ON CONFLICT (client_id, tab_key) DO NOTHING
         """), {"cid": client_id, "oid": str(current_user.org_id)})
         await db.commit()

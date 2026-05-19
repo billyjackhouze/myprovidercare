@@ -303,106 +303,149 @@ function TreatmentPlansPanel({ clientId }) {
 
 // ─── Manage tabs helpers ──────────────────────────────────────────────────────
 
-const ALL_BUILTIN_TABS = [
-  { tab_key: 'intake',       label: 'Intake' },
-  { tab_key: 'referral',     label: 'Referral' },
-  { tab_key: 'hospital',     label: 'Hospital Discharge' },
-  { tab_key: 'auths',        label: 'Auths' },
-  { tab_key: 'superbill',    label: 'Super Bill' },
-  { tab_key: 'therapy',      label: 'Therapy Note' },
-  { tab_key: 'ansa',         label: 'ANSA' },
-  { tab_key: 'treatment',    label: 'Treatment Plan' },
-  { tab_key: 'bio',          label: 'BIO' },
-  { tab_key: 'nursing',      label: 'Nursing' },
-  { tab_key: 'risk',         label: 'Risk Screening' },
-  { tab_key: 'notes',        label: 'Progress Notes' },
-  { tab_key: 'appts',        label: 'Appointments' },
-  { tab_key: 'attachments',  label: 'Attachments' },
-  { tab_key: 'discharge',    label: 'Discharge' },
-  { tab_key: 'contacts',     label: 'Contact Notes' },
+// Built-in module tabs (no form attached — rendered by hardcoded components)
+const BUILTIN_MODULES = [
+  { tab_key: 'intake',      label: 'Intake',             icon: '📋' },
+  { tab_key: 'treatment',   label: 'Treatment Plan',      icon: '🎯' },
+  { tab_key: 'notes',       label: 'Progress Notes',      icon: '📝' },
+  { tab_key: 'auths',       label: 'Auths',               icon: '✅' },
+  { tab_key: 'appts',       label: 'Appointments',        icon: '📅' },
+  { tab_key: 'attachments', label: 'Attachments',         icon: '📎' },
+  { tab_key: 'superbill',   label: 'Super Bill',          icon: '💰' },
+  { tab_key: 'ansa',        label: 'ANSA',                icon: '📊' },
+  { tab_key: 'bio',         label: 'BIO',                 icon: '🧬' },
+  { tab_key: 'nursing',     label: 'Nursing',             icon: '🏥' },
+  { tab_key: 'risk',        label: 'Risk Screening',      icon: '⚠️' },
+  { tab_key: 'hospital',    label: 'Hospital Discharge',  icon: '🏨' },
+  { tab_key: 'therapy',     label: 'Therapy Note',        icon: '🛋️' },
+  { tab_key: 'discharge',   label: 'Discharge',           icon: '🚪' },
+  { tab_key: 'contacts',    label: 'Contact Notes',       icon: '📞' },
+  { tab_key: 'referral',    label: 'Referral',            icon: '📨' },
 ]
 
-function AddFormTabRow({ forms, clientId, onAdded }) {
-  const [selectedId, setSelectedId] = useState('')
-  const [label, setLabel] = useState('')
-  const [saving, setSaving] = useState(false)
+function ManageTabsPanel({ clientId, activeTabs, availableForms, onClose, onRefresh, setActiveTab }) {
+  const [adding, setAdding] = useState(null) // tab_key or form id being added
 
-  const handleAdd = async () => {
-    if (!selectedId || !label.trim()) return
-    setSaving(true)
+  // What's not already active
+  const activeKeys = new Set(activeTabs.map(t => t.tab_key))
+  const activeFormIds = new Set(activeTabs.map(t => t.form_schema_id).filter(Boolean))
+
+  const missingBuiltins = BUILTIN_MODULES.filter(b => !activeKeys.has(b.tab_key))
+  const missingForms = availableForms.filter(f => !activeFormIds.has(f.id))
+
+  const addBuiltin = async (tab) => {
+    setAdding(tab.tab_key)
     try {
       await api.post(`/workflow/clients/${clientId}/tabs`, {
-        form_schema_id: selectedId,
-        label: label.trim(),
+        tab_key: tab.tab_key,
+        label: tab.label,
+        form_schema_id: null,
       })
-      onAdded()
-    } catch {
-    } finally {
-      setSaving(false)
-    }
+      onRefresh()
+    } finally { setAdding(null) }
+  }
+
+  const addForm = async (form) => {
+    setAdding(form.id)
+    try {
+      await api.post(`/workflow/clients/${clientId}/tabs`, {
+        form_schema_id: form.id,
+        label: form.name,
+      })
+      onRefresh()
+    } finally { setAdding(null) }
+  }
+
+  const removeTab = async (tab) => {
+    await api.delete(`/workflow/clients/${clientId}/tabs/${tab.tab_key}`)
+    onRefresh()
+    if (setActiveTab) setActiveTab('general')
   }
 
   return (
-    <div className="space-y-2">
-      <select
-        className="field-input text-xs"
-        value={selectedId}
-        onChange={e => {
-          setSelectedId(e.target.value)
-          const f = forms.find(f => f.id === e.target.value)
-          if (f) setLabel(f.name)
-        }}
-      >
-        <option value="">Select form…</option>
-        {forms.map(f => (
-          <option key={f.id} value={f.id}>{f.name}</option>
-        ))}
-      </select>
-      {selectedId && (
-        <div className="flex gap-2">
-          <input
-            className="field-input text-xs flex-1"
-            placeholder="Tab label"
-            value={label}
-            onChange={e => setLabel(e.target.value)}
-          />
-          <button
-            className="btn-primary text-xs px-3 py-1.5 shrink-0"
-            onClick={handleAdd}
-            disabled={saving || !label.trim()}
-          >
-            {saving ? <IconLoader2 size={12} className="animate-spin" /> : 'Add'}
-          </button>
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative w-80 bg-card border-l border-border flex flex-col shadow-xl h-full overflow-y-auto">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card sticky top-0 z-10">
+          <h2 className="text-sm font-semibold text-heading">Manage Tabs</h2>
+          <button onClick={onClose} className="text-muted hover:text-heading"><IconX size={16} /></button>
         </div>
-      )}
-    </div>
-  )
-}
 
-function BuiltinTabsSection({ clientId, activeTabs, onAdded }) {
-  const missing = ALL_BUILTIN_TABS.filter(b => !activeTabs.find(t => t.tab_key === b.tab_key))
-  if (!missing.length) return null
+        {/* Active tabs */}
+        <div className="px-4 pt-4 pb-3">
+          <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Active</p>
+          <div className="space-y-0.5">
+            {activeTabs.map(tab => (
+              <div key={tab.tab_key} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-page group">
+                <span className="text-sm text-heading flex items-center gap-1.5">
+                  {tab.label}
+                  {tab.tab_type === 'custom' && <span className="text-xs text-blue-500">✨</span>}
+                </span>
+                {tab.tab_key !== 'general' && (
+                  <button
+                    className="text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                    onClick={() => removeTab(tab)}
+                    title="Remove"
+                  >
+                    <IconX size={13} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
 
-  return (
-    <div className="px-4 pt-3 pb-4 border-t border-border">
-      <p className="text-xs text-muted mb-2 font-medium uppercase tracking-wide">Add Built-in Tab</p>
-      <div className="space-y-1">
-        {missing.map(tab => (
-          <button
-            key={tab.tab_key}
-            className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-page text-muted hover:text-heading flex items-center gap-2"
-            onClick={async () => {
-              await api.post(`/workflow/clients/${clientId}/tabs`, {
-                tab_key: tab.tab_key,
-                label: tab.label,
-                form_schema_id: null,
-              })
-              onAdded()
-            }}
-          >
-            <IconPlus size={11} /> {tab.label}
-          </button>
-        ))}
+        {/* Add built-in modules */}
+        {missingBuiltins.length > 0 && (
+          <div className="px-4 pt-3 pb-3 border-t border-border">
+            <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Add Module</p>
+            <div className="space-y-0.5">
+              {missingBuiltins.map(tab => (
+                <button
+                  key={tab.tab_key}
+                  className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-page text-muted hover:text-heading flex items-center gap-2 disabled:opacity-40"
+                  disabled={adding === tab.tab_key}
+                  onClick={() => addBuiltin(tab)}
+                >
+                  {adding === tab.tab_key
+                    ? <IconLoader2 size={11} className="animate-spin" />
+                    : <IconPlus size={11} />}
+                  <span>{tab.icon} {tab.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Add form tabs */}
+        {missingForms.length > 0 && (
+          <div className="px-4 pt-3 pb-4 border-t border-border">
+            <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Add Form ✨</p>
+            <div className="space-y-0.5">
+              {missingForms.map(form => (
+                <button
+                  key={form.id}
+                  className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-page text-muted hover:text-heading flex items-center gap-2 disabled:opacity-40"
+                  disabled={adding === form.id}
+                  onClick={() => addForm(form)}
+                >
+                  {adding === form.id
+                    ? <IconLoader2 size={11} className="animate-spin" />
+                    : <IconPlus size={11} />}
+                  ✨ {form.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {missingBuiltins.length === 0 && missingForms.length === 0 && (
+          <div className="px-4 py-3 border-t border-border text-xs text-muted">
+            All available tabs are active.
+          </div>
+        )}
       </div>
     </div>
   )
@@ -548,71 +591,14 @@ export default function ClientDetail() {
 
       {/* Manage Tabs slide-over panel */}
       {showManageTabs && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setShowManageTabs(false)} />
-          <div className="relative w-80 bg-card border-l border-border flex flex-col shadow-xl h-full overflow-y-auto">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card sticky top-0 z-10">
-              <h2 className="text-sm font-semibold text-heading">Manage Tabs</h2>
-              <button onClick={() => setShowManageTabs(false)} className="text-muted hover:text-heading">
-                <IconX size={16} />
-              </button>
-            </div>
-
-            {/* Current tabs */}
-            <div className="px-4 pt-4 pb-2">
-              <p className="text-xs text-muted mb-2 font-medium uppercase tracking-wide">Active Tabs</p>
-              <div className="space-y-1">
-                {workflowTabs.map(tab => (
-                  <div key={tab.tab_key} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-page group">
-                    <span className="text-sm text-heading">
-                      {tab.label}
-                      {tab.tab_type === 'custom' && <span className="ml-1 text-xs text-muted">✨</span>}
-                    </span>
-                    {tab.tab_key !== 'general' && (
-                      <button
-                        className="text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                        title="Remove tab"
-                        onClick={async () => {
-                          await api.delete(`/workflow/clients/${clientId}/tabs/${tab.tab_key}`)
-                          loadClientTabs()
-                          if (activeTab === tab.tab_key) setActiveTab('general')
-                        }}
-                      >
-                        <IconX size={13} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Add form as tab */}
-            <div className="px-4 pt-3 pb-4 border-t border-border mt-2">
-              <p className="text-xs text-muted mb-2 font-medium uppercase tracking-wide">Add Form Tab</p>
-              {availableForms.filter(f => !workflowTabs.find(t => t.form_schema_id === f.id)).length === 0 ? (
-                <p className="text-xs text-muted">
-                  All forms are already added.{' '}
-                  <button className="text-primary underline" onClick={() => { setShowManageTabs(false); navigate('/forms/ingest') }}>
-                    Ingest a new form
-                  </button>
-                </p>
-              ) : (
-                <AddFormTabRow
-                  forms={availableForms.filter(f => !workflowTabs.find(t => t.form_schema_id === f.id))}
-                  clientId={clientId}
-                  onAdded={() => { loadClientTabs(); setShowManageTabs(false) }}
-                />
-              )}
-            </div>
-
-            {/* Add built-in tab back */}
-            <BuiltinTabsSection
-              clientId={clientId}
-              activeTabs={workflowTabs}
-              onAdded={loadClientTabs}
-            />
-          </div>
-        </div>
+        <ManageTabsPanel
+          clientId={clientId}
+          activeTabs={workflowTabs}
+          availableForms={availableForms}
+          onClose={() => setShowManageTabs(false)}
+          onRefresh={() => { loadClientTabs(); }}
+          setActiveTab={setActiveTab}
+        />
       )}
 
       {/* Main content */}
