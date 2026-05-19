@@ -548,6 +548,46 @@ async def add_fields_to_form(
     return {"added_fields": len(body.fields)}
 
 
+class UpdateFieldRequest(BaseModel):
+    label: Optional[str] = None
+    field_type: Optional[str] = None
+    is_required: Optional[bool] = None
+    placeholder: Optional[str] = None
+    options: Optional[list] = None
+    validation: Optional[dict] = None
+
+
+@router.put("/{form_id}/fields/{field_id}")
+async def update_field(
+    form_id: uuid.UUID,
+    field_id: uuid.UUID,
+    body: UpdateFieldRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update an existing field's label, type, options, or formula."""
+    result = await db.execute(
+        select(FormField).where(
+            FormField.id == field_id,
+            FormField.form_id == form_id,
+            FormField.org_id == current_user.org_id,
+        )
+    )
+    field = result.scalar_one_or_none()
+    if not field:
+        raise HTTPException(status_code=404, detail="Field not found")
+
+    if body.label       is not None: field.label       = body.label
+    if body.field_type  is not None: field.field_type  = body.field_type
+    if body.is_required is not None: field.is_required = body.is_required
+    if body.placeholder is not None: field.placeholder = body.placeholder
+    if body.options     is not None: field.options     = body.options
+    if body.validation  is not None: field.validation  = body.validation
+
+    await db.commit()
+    return {"updated": str(field_id)}
+
+
 class UpdateFormRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
