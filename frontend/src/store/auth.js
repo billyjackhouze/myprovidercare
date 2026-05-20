@@ -22,11 +22,16 @@ const useAuthStore = create((set) => ({
 
   fetchMe: async () => {
     try {
-      const [meRes, permRes] = await Promise.all([
-        api.get('/users/me'),
-        api.get('/settings/me/permissions').catch(() => ({ data: { permissions: [] } })),
-      ])
-      set({ user: meRes.data, permissions: permRes.data.permissions || [] })
+      const meRes = await api.get('/users/me')
+      set({ user: meRes.data })
+      // Load permissions separately — never allow this to break auth
+      try {
+        const permRes = await api.get('/settings/me/permissions')
+        set({ permissions: permRes.data.permissions || [] })
+      } catch {
+        // Permissions unavailable — silently fall back to showing all nav items
+        set({ permissions: [] })
+      }
     } catch {
       localStorage.removeItem('ncm_token')
       set({ token: null, isAuthenticated: false, user: null, permissions: [] })

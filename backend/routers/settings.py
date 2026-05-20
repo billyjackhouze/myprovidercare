@@ -11,6 +11,7 @@ from database import get_db
 from dependencies import get_current_user, require_roles
 from models.user import User, VALID_ROLES
 from models.org import Organization
+from models.client import ServiceCity, InsuranceEmailRecipient
 
 router = APIRouter()
 
@@ -487,3 +488,260 @@ async def get_my_permissions(
         "role": current_user.role,
         "permissions": [k for k, v in effective.items() if v],
     }
+
+
+# ── Service Cities ─────────────────────────────────────────────────────────────
+
+class CityCreate(BaseModel):
+    name: str
+    sort_order: int = 0
+
+class CityUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+@router.get("/service-cities")
+async def list_service_cities(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ServiceCity)
+        .where(ServiceCity.org_id == current_user.org_id)
+        .order_by(ServiceCity.sort_order, ServiceCity.name)
+    )
+    cities = result.scalars().all()
+    return [
+        {
+            "id": str(c.id),
+            "name": c.name,
+            "is_active": c.is_active,
+            "sort_order": c.sort_order,
+        }
+        for c in cities
+    ]
+
+
+@router.post("/service-cities", status_code=201)
+async def create_service_city(
+    body: CityCreate,
+    current_user: User = Depends(require_roles("owner", "admin", "supervisor", "developer")),
+    db: AsyncSession = Depends(get_db),
+):
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="City name cannot be blank")
+
+    # Check for duplicate
+    existing = await db.execute(
+        select(ServiceCity).where(
+            ServiceCity.org_id == current_user.org_id,
+            ServiceCity.name == name,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail=f"City '{name}' already exists")
+
+    city = ServiceCity(
+        org_id=current_user.org_id,
+        name=name,
+        sort_order=body.sort_order,
+    )
+    db.add(city)
+    await db.commit()
+    await db.refresh(city)
+    return {"id": str(city.id), "name": city.name, "is_active": city.is_active, "sort_order": city.sort_order}
+
+
+@router.put("/service-cities/{city_id}")
+async def update_service_city(
+    city_id: uuid.UUID,
+    body: CityUpdate,
+    current_user: User = Depends(require_roles("owner", "admin", "supervisor", "developer")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ServiceCity).where(
+            ServiceCity.id == city_id, ServiceCity.org_id == current_user.org_id
+        )
+    )
+    city = result.scalar_one_or_none()
+    if not city:
+        raise HTTPException(status_code=404, detail="City not found")
+
+    if body.name is not None:
+        city.name = body.name.strip()
+    if body.is_active is not None:
+        city.is_active = body.is_active
+    if body.sort_order is not None:
+        city.sort_order = body.sort_order
+
+    await db.commit()
+    return {"ok": True, "id": str(city.id), "name": city.name, "is_active": city.is_active}
+
+
+@router.delete("/service-cities/{city_id}")
+async def delete_service_city(
+    city_id: uuid.UUID,
+    current_user: User = Depends(require_roles("owner", "admin", "supervisor", "developer")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ServiceCity).where(
+            ServiceCity.id == city_id, ServiceCity.org_id == current_user.org_id
+        )
+    )
+    city = result.scalar_one_or_none()
+    if not city:
+        raise HTTPException(status_code=404, detail="City not found")
+
+    # Remove this city from any recipient subscriptions
+    await db.execute(
+        text("""
+            UPDATE insurance_email_recipients
+            SET subscribed_city_ids = (
+                SELECT jsonb_agg(val)
+                FROM jsonb_array_elements_text(subscribed_city_ids) AS val
+                WHERE val <> :city_id
+            )
+            WHERE org_id = :org_id
+              AND subscribed_city_ids @> :city_id_arr::jsonb
+        """),
+        {"city_id": str(city_id), "org_id": current_user.org_id, "city_id_arr": f'["{city_id}"]'}
+    )
+
+    await db.delete(city)
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Insurance Email Recipients ─────────────────────────────────────────────────
+
+class EmailRecipientCreate(BaseModel):
+    email: EmailStr
+    label: Optional[str] = None
+    subscribed_city_ids: list[str] = []   # list of city UUID strings; [] = all cities
+
+class EmailRecipientUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    label: Optional[str] = None
+    is_active: Optional[bool] = None
+    subscribed_city_ids: Optional[list[str]] = None
+
+
+@router.get("/insurance-emails")
+async def list_insurance_email_recipients(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(InsuranceEmailRecipient)
+        .where(InsuranceEmailRecipient.org_id == current_user.org_id)
+        .order_by(InsuranceEmailRecipient.created_at)
+    )
+    recipients = result.scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "email": r.email,
+            "label": r.label,
+            "is_active": r.is_active,
+            "subscribed_city_ids": r.subscribed_city_ids or [],
+        }
+        for r in recipients
+    ]
+
+
+@router.post("/insurance-emails", status_code=201)
+async def create_insurance_email_recipient(
+    body: EmailRecipientCreate,
+    current_user: User = Depends(require_roles("owner", "admin", "supervisor", "developer")),
+    db: AsyncSession = Depends(get_db),
+):
+    # Check for duplicate
+    existing = await db.execute(
+        select(InsuranceEmailRecipient).where(
+            InsuranceEmailRecipient.org_id == current_user.org_id,
+            InsuranceEmailRecipient.email == body.email.lower(),
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="That email address is already in the list")
+
+    recipient = InsuranceEmailRecipient(
+        org_id=current_user.org_id,
+        email=body.email.lower(),
+        label=body.label,
+        subscribed_city_ids=body.subscribed_city_ids,
+        created_by=current_user.id,
+    )
+    db.add(recipient)
+    await db.commit()
+    await db.refresh(recipient)
+    return {
+        "id": str(recipient.id),
+        "email": recipient.email,
+        "label": recipient.label,
+        "is_active": recipient.is_active,
+        "subscribed_city_ids": recipient.subscribed_city_ids or [],
+    }
+
+
+@router.put("/insurance-emails/{recipient_id}")
+async def update_insurance_email_recipient(
+    recipient_id: uuid.UUID,
+    body: EmailRecipientUpdate,
+    current_user: User = Depends(require_roles("owner", "admin", "supervisor", "developer")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(InsuranceEmailRecipient).where(
+            InsuranceEmailRecipient.id == recipient_id,
+            InsuranceEmailRecipient.org_id == current_user.org_id,
+        )
+    )
+    recipient = result.scalar_one_or_none()
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+
+    if body.email is not None:
+        recipient.email = body.email.lower()
+    if body.label is not None:
+        recipient.label = body.label
+    if body.is_active is not None:
+        recipient.is_active = body.is_active
+    if body.subscribed_city_ids is not None:
+        recipient.subscribed_city_ids = body.subscribed_city_ids
+
+    await db.commit()
+    return {
+        "ok": True,
+        "id": str(recipient.id),
+        "email": recipient.email,
+        "label": recipient.label,
+        "is_active": recipient.is_active,
+        "subscribed_city_ids": recipient.subscribed_city_ids or [],
+    }
+
+
+@router.delete("/insurance-emails/{recipient_id}")
+async def delete_insurance_email_recipient(
+    recipient_id: uuid.UUID,
+    current_user: User = Depends(require_roles("owner", "admin", "supervisor", "developer")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(InsuranceEmailRecipient).where(
+            InsuranceEmailRecipient.id == recipient_id,
+            InsuranceEmailRecipient.org_id == current_user.org_id,
+        )
+    )
+    recipient = result.scalar_one_or_none()
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+
+    await db.delete(recipient)
+    await db.commit()
+    return {"ok": True}

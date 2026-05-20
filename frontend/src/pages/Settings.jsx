@@ -9,6 +9,7 @@ import {
   IconLoader2, IconCheck, IconPlus, IconX, IconPencil,
   IconUserCheck, IconUserOff, IconChevronRight, IconSparkles,
   IconLock, IconKey, IconShieldCheck, IconChevronDown, IconChevronUp,
+  IconMail, IconMapPin, IconTrash, IconToggleRight, IconToggleLeft,
 } from '@tabler/icons-react'
 
 // Simple inline icon substitutes
@@ -19,11 +20,12 @@ import api from '@/lib/api'
 import useAuthStore from '@/store/auth'
 
 const TABS = [
-  { key: 'org',      label: 'Organization',        Icon: IconBuilding },
-  { key: 'users',    label: 'Users & Roles',        Icon: IconUsers },
-  { key: 'roles',    label: 'Roles & Permissions',  Icon: IconShieldCheck },
-  { key: 'workflow', label: 'Workflow & Forms',      Icon: IconSettings2 },
-  { key: 'security', label: 'Security',              Icon: IconShieldLock },
+  { key: 'org',       label: 'Organization',        Icon: IconBuilding },
+  { key: 'users',     label: 'Users & Roles',        Icon: IconUsers },
+  { key: 'roles',     label: 'Roles & Permissions',  Icon: IconShieldCheck },
+  { key: 'workflow',  label: 'Workflow & Forms',      Icon: IconSettings2 },
+  { key: 'insurance', label: 'Insurance Emails',      Icon: IconMail },
+  { key: 'security',  label: 'Security',              Icon: IconShieldLock },
 ]
 
 export default function Settings() {
@@ -51,11 +53,12 @@ export default function Settings() {
         ))}
       </div>
 
-      {activeTab === 'org'      && <OrgTab />}
-      {activeTab === 'users'    && <UsersTab />}
-      {activeTab === 'roles'    && <RolesTab />}
-      {activeTab === 'workflow' && <WorkflowTab />}
-      {activeTab === 'security' && <SecurityTab />}
+      {activeTab === 'org'       && <OrgTab />}
+      {activeTab === 'users'     && <UsersTab />}
+      {activeTab === 'roles'     && <RolesTab />}
+      {activeTab === 'workflow'  && <WorkflowTab />}
+      {activeTab === 'insurance' && <InsuranceEmailsTab />}
+      {activeTab === 'security'  && <SecurityTab />}
     </div>
   )
 }
@@ -664,6 +667,436 @@ function SecurityTab() {
         </form>
       </Card>
     </div>
+  )
+}
+
+// ─── Tab 6: Insurance Emails ──────────────────────────────────────────────────
+function InsuranceEmailsTab() {
+  const [recipients, setRecipients] = useState([])
+  const [cities, setCities]         = useState([])
+  const [loading, setLoading]       = useState(true)
+
+  const load = useCallback(async () => {
+    try {
+      const [rRes, cRes] = await Promise.all([
+        api.get('/settings/insurance-emails'),
+        api.get('/settings/service-cities'),
+      ])
+      setRecipients(rRes.data)
+      setCities(cRes.data)
+    } catch { toast.error('Failed to load insurance email settings') }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  if (loading) return <Spinner text="Loading insurance email settings…" />
+
+  return (
+    <div className="space-y-5">
+      <EmailRecipientList
+        recipients={recipients}
+        setRecipients={setRecipients}
+        cities={cities}
+      />
+      <ServiceCityManager
+        cities={cities}
+        setCities={setCities}
+        onCityDeleted={(deletedId) => {
+          // Scrub deleted city from all recipients in UI
+          setRecipients(prev => prev.map(r => ({
+            ...r,
+            subscribed_city_ids: r.subscribed_city_ids.filter(id => id !== deletedId),
+          })))
+        }}
+      />
+    </div>
+  )
+}
+
+// ── Email recipient list ───────────────────────────────────────────────────────
+function EmailRecipientList({ recipients, setRecipients, cities }) {
+  const [showAdd, setShowAdd]   = useState(false)
+  const [newEmail, setNewEmail] = useState('')
+  const [newLabel, setNewLabel] = useState('')
+  const [adding, setAdding]     = useState(false)
+  const [updatingId, setUpdatingId] = useState(null)
+
+  const activeCities = cities.filter(c => c.is_active)
+
+  const handleAdd = async (e) => {
+    e.preventDefault()
+    if (!newEmail.trim()) return
+    setAdding(true)
+    try {
+      const res = await api.post('/settings/insurance-emails', {
+        email: newEmail.trim(),
+        label: newLabel.trim() || null,
+        subscribed_city_ids: [],
+      })
+      setRecipients(prev => [...prev, res.data])
+      setNewEmail('')
+      setNewLabel('')
+      setShowAdd(false)
+      toast.success('Email address added')
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to add email')
+    } finally { setAdding(false) }
+  }
+
+  const handleToggleActive = async (r) => {
+    setUpdatingId(r.id)
+    try {
+      await api.put(`/settings/insurance-emails/${r.id}`, { is_active: !r.is_active })
+      setRecipients(prev => prev.map(x => x.id === r.id ? { ...x, is_active: !x.is_active } : x))
+    } catch { toast.error('Failed to update') } finally { setUpdatingId(null) }
+  }
+
+  const handleDelete = async (r) => {
+    if (!confirm(`Remove ${r.email} from the insurance email list?`)) return
+    setUpdatingId(r.id)
+    try {
+      await api.delete(`/settings/insurance-emails/${r.id}`)
+      setRecipients(prev => prev.filter(x => x.id !== r.id))
+      toast.success('Removed')
+    } catch { toast.error('Failed to remove') } finally { setUpdatingId(null) }
+  }
+
+  const handleCityToggle = async (r, cityId) => {
+    // '__clear__' = reset to empty array (means "all cities")
+    const current = r.subscribed_city_ids || []
+    const updated = cityId === '__clear__'
+      ? []
+      : current.includes(cityId)
+        ? current.filter(id => id !== cityId)
+        : [...current, cityId]
+    setUpdatingId(r.id)
+    try {
+      await api.put(`/settings/insurance-emails/${r.id}`, { subscribed_city_ids: updated })
+      setRecipients(prev => prev.map(x => x.id === r.id ? { ...x, subscribed_city_ids: updated } : x))
+    } catch { toast.error('Failed to update cities') } finally { setUpdatingId(null) }
+  }
+
+  const getCityLabel = (id) => cities.find(c => c.id === id)?.name || id
+
+  return (
+    <Card
+      title={
+        <span className="flex items-center gap-1.5">
+          <IconMail size={14} />
+          Insurance Email Recipients
+          <span className="ml-1 text-xs font-normal text-muted">({recipients.length})</span>
+        </span>
+      }
+      action={
+        !showAdd && (
+          <button onClick={() => setShowAdd(true)} className="btn-primary text-sm flex items-center gap-1.5">
+            <IconPlus size={14} /> Add Email
+          </button>
+        )
+      }
+    >
+      {/* Add form */}
+      {showAdd && (
+        <form onSubmit={handleAdd} className="px-5 py-4 border-b border-border bg-blue-50/40 flex flex-wrap gap-3 items-end">
+          <div className="flex-1 min-w-48">
+            <label className="field-label">Email Address</label>
+            <input
+              required type="email" autoFocus
+              value={newEmail} onChange={e => setNewEmail(e.target.value)}
+              className="field-input" placeholder="insurer@company.com"
+            />
+          </div>
+          <div className="flex-1 min-w-40">
+            <label className="field-label">Label / Company (optional)</label>
+            <input
+              value={newLabel} onChange={e => setNewLabel(e.target.value)}
+              className="field-input" placeholder="Medicaid MCO"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setShowAdd(false)} className="btn-secondary text-sm">Cancel</button>
+            <button type="submit" disabled={adding} className="btn-primary text-sm flex items-center gap-1.5">
+              {adding ? <IconLoader2 size={14} className="animate-spin" /> : <IconCheck size={14} />}
+              Add
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Table */}
+      {recipients.length === 0 ? (
+        <div className="text-center py-12 text-muted text-sm">
+          <IconMail size={28} className="mx-auto mb-2 opacity-30" />
+          No email addresses yet. Add one above to get started.
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          {recipients.map(r => (
+            <RecipientRow
+              key={r.id}
+              recipient={r}
+              cities={activeCities}
+              allCities={cities}
+              isUpdating={updatingId === r.id}
+              onToggleActive={() => handleToggleActive(r)}
+              onDelete={() => handleDelete(r)}
+              onCityToggle={(cityId) => handleCityToggle(r, cityId)}
+              getCityLabel={getCityLabel}
+            />
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function RecipientRow({ recipient, cities, allCities, isUpdating, onToggleActive, onDelete, onCityToggle, getCityLabel }) {
+  const [showCities, setShowCities] = useState(false)
+  const subscribed = recipient.subscribed_city_ids || []
+  const allSelected = subscribed.length === 0
+
+  return (
+    <div className={`${recipient.is_active ? 'bg-white' : 'bg-page opacity-60'}`}>
+      {/* Main row */}
+      <div className="flex items-center gap-3 px-5 py-3">
+        {/* Email + label */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-heading truncate">{recipient.email}</span>
+            {recipient.is_active
+              ? <span className="inline-flex items-center gap-1 text-xs text-emerald-600"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />Active</span>
+              : <span className="inline-flex items-center gap-1 text-xs text-gray-400"><span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />Inactive</span>
+            }
+          </div>
+          {recipient.label && <div className="text-xs text-muted">{recipient.label}</div>}
+        </div>
+
+        {/* City summary chip */}
+        <button
+          onClick={() => setShowCities(v => !v)}
+          className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+            showCities
+              ? 'bg-primary text-white border-primary'
+              : 'border-border text-muted hover:border-primary/50 hover:text-heading'
+          }`}
+        >
+          <IconMapPin size={11} />
+          {allSelected
+            ? 'All cities'
+            : subscribed.length === 1
+              ? getCityLabel(subscribed[0])
+              : `${subscribed.length} cities`
+          }
+          {showCities ? <IconChevronUp size={11} /> : <IconChevronDown size={11} />}
+        </button>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={onToggleActive}
+            disabled={isUpdating}
+            title={recipient.is_active ? 'Deactivate' : 'Activate'}
+            className={`p-1.5 rounded border transition-colors disabled:opacity-40 ${
+              recipient.is_active
+                ? 'border-border text-muted hover:text-amber-600 hover:border-amber-300'
+                : 'border-border text-muted hover:text-emerald-600 hover:border-emerald-300'
+            }`}
+          >
+            {isUpdating
+              ? <IconLoader2 size={13} className="animate-spin" />
+              : recipient.is_active ? <IconToggleRight size={13} /> : <IconToggleLeft size={13} />
+            }
+          </button>
+          <button
+            onClick={onDelete}
+            disabled={isUpdating}
+            title="Remove"
+            className="p-1.5 rounded border border-border text-muted hover:text-red-500 hover:border-red-300 transition-colors disabled:opacity-40"
+          >
+            <IconTrash size={13} />
+          </button>
+        </div>
+      </div>
+
+      {/* City selector (expanded) */}
+      {showCities && (
+        <div className="px-5 pb-4 pt-1">
+          <div className="bg-page border border-border rounded-card p-3">
+            <div className="flex items-center justify-between mb-2.5">
+              <p className="text-xs font-semibold text-muted uppercase tracking-wide">
+                Select Cities to Receive Emails
+              </p>
+              <span className="text-xs text-muted">
+                {allSelected ? 'Receiving all cities' : `${subscribed.length} of ${cities.length} selected`}
+              </span>
+            </div>
+
+            {cities.length === 0 ? (
+              <p className="text-xs text-muted italic">No service cities defined yet — add them in the section below.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {/* "All Cities" toggle */}
+                <button
+                  onClick={() => {
+                    if (!allSelected) {
+                      // Clear all → means "all cities"
+                      onCityToggle('__clear__')
+                    }
+                  }}
+                  className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                    allSelected
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-border text-muted hover:border-blue-400 hover:text-blue-600'
+                  }`}
+                >
+                  All cities
+                </button>
+
+                {cities.map(city => {
+                  const checked = subscribed.includes(city.id)
+                  return (
+                    <button
+                      key={city.id}
+                      onClick={() => onCityToggle(city.id)}
+                      className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                        checked
+                          ? 'bg-primary text-white border-primary'
+                          : 'border-border text-muted hover:border-primary/50 hover:text-heading'
+                      }`}
+                    >
+                      {checked && <IconCheck size={10} />}
+                      {city.name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+
+            <p className="text-xs text-muted mt-2.5">
+              {allSelected
+                ? 'This address receives emails for every city. Select specific cities to narrow it down.'
+                : 'Click a city to toggle it. Clear all selections to receive emails for all cities.'}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Service city manager ───────────────────────────────────────────────────────
+function ServiceCityManager({ cities, setCities, onCityDeleted }) {
+  const [newName, setNewName]   = useState('')
+  const [adding, setAdding]     = useState(false)
+  const [updatingId, setUpdatingId] = useState(null)
+
+  const handleAdd = async (e) => {
+    e.preventDefault()
+    if (!newName.trim()) return
+    setAdding(true)
+    try {
+      const res = await api.post('/settings/service-cities', { name: newName.trim() })
+      setCities(prev => [...prev, res.data].sort((a, b) => a.name.localeCompare(b.name)))
+      setNewName('')
+      toast.success(`"${res.data.name}" added`)
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to add city')
+    } finally { setAdding(false) }
+  }
+
+  const handleToggle = async (city) => {
+    setUpdatingId(city.id)
+    try {
+      await api.put(`/settings/service-cities/${city.id}`, { is_active: !city.is_active })
+      setCities(prev => prev.map(c => c.id === city.id ? { ...c, is_active: !c.is_active } : c))
+    } catch { toast.error('Failed to update') } finally { setUpdatingId(null) }
+  }
+
+  const handleDelete = async (city) => {
+    if (!confirm(`Remove "${city.name}" from the city list? It will be unsubscribed from all email recipients.`)) return
+    setUpdatingId(city.id)
+    try {
+      await api.delete(`/settings/service-cities/${city.id}`)
+      setCities(prev => prev.filter(c => c.id !== city.id))
+      onCityDeleted(city.id)
+      toast.success(`"${city.name}" removed`)
+    } catch { toast.error('Failed to remove city') } finally { setUpdatingId(null) }
+  }
+
+  return (
+    <Card
+      title={
+        <span className="flex items-center gap-1.5">
+          <IconMapPin size={14} />
+          Service Cities
+          <span className="ml-1 text-xs font-normal text-muted">({cities.filter(c => c.is_active).length} active)</span>
+        </span>
+      }
+    >
+      <div className="px-5 py-4 border-b border-border">
+        <p className="text-xs text-muted mb-3">
+          Manage the list of cities that appear as options when assigning email recipients. Changes here update immediately across all recipient subscriptions.
+        </p>
+        <form onSubmit={handleAdd} className="flex gap-2">
+          <input
+            value={newName} onChange={e => setNewName(e.target.value)}
+            className="field-input flex-1" placeholder="Enter city name…"
+          />
+          <button type="submit" disabled={adding || !newName.trim()} className="btn-primary text-sm flex items-center gap-1.5 disabled:opacity-50">
+            {adding ? <IconLoader2 size={14} className="animate-spin" /> : <IconPlus size={14} />}
+            Add City
+          </button>
+        </form>
+      </div>
+
+      {cities.length === 0 ? (
+        <div className="text-center py-10 text-muted text-sm">
+          <IconMapPin size={24} className="mx-auto mb-2 opacity-30" />
+          No cities added yet.
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          {cities.map(city => (
+            <div key={city.id} className={`flex items-center gap-3 px-5 py-2.5 ${city.is_active ? 'bg-white' : 'bg-page'}`}>
+              <div className="flex-1 min-w-0">
+                <span className={`text-sm ${city.is_active ? 'text-heading font-medium' : 'text-muted line-through'}`}>
+                  {city.name}
+                </span>
+              </div>
+              {!city.is_active && (
+                <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">Hidden</span>
+              )}
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => handleToggle(city)}
+                  disabled={updatingId === city.id}
+                  title={city.is_active ? 'Hide city' : 'Show city'}
+                  className={`p-1.5 rounded border transition-colors text-xs disabled:opacity-40 ${
+                    city.is_active
+                      ? 'border-border text-muted hover:text-amber-600 hover:border-amber-300'
+                      : 'border-border text-muted hover:text-emerald-600 hover:border-emerald-300'
+                  }`}
+                >
+                  {updatingId === city.id
+                    ? <IconLoader2 size={13} className="animate-spin" />
+                    : city.is_active ? <IconToggleRight size={13} /> : <IconToggleLeft size={13} />
+                  }
+                </button>
+                <button
+                  onClick={() => handleDelete(city)}
+                  disabled={updatingId === city.id}
+                  title="Delete city"
+                  className="p-1.5 rounded border border-border text-muted hover:text-red-500 hover:border-red-300 transition-colors disabled:opacity-40"
+                >
+                  <IconTrash size={13} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 

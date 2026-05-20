@@ -239,6 +239,40 @@ class Authorization(Base, UUIDPrimaryKey, TimestampMixin):
         return self.units_authorized - self.units_used
 
 
+class ServiceCity(Base, UUIDPrimaryKey):
+    """Admin-managed list of service area cities used for insurance email routing."""
+    __tablename__ = "service_cities"
+
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str | None] = mapped_column(TIMESTAMP(timezone=True))
+
+
+class InsuranceEmailRecipient(Base, UUIDPrimaryKey):
+    """
+    Email addresses approved to receive insurance notifications.
+    subscribed_city_ids is a JSON array of ServiceCity UUIDs (as strings).
+    An empty array means the recipient receives emails for ALL cities.
+    """
+    __tablename__ = "insurance_email_recipients"
+
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(255))        # friendly name / company
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    subscribed_city_ids: Mapped[list] = mapped_column(JSONB, default=list)
+    created_at: Mapped[str | None] = mapped_column(TIMESTAMP(timezone=True))
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+
+
 class DropdownOption(Base, UUIDPrimaryKey):
     """Admin-managed dropdown options per page/field."""
     __tablename__ = "dropdown_options"
