@@ -96,6 +96,8 @@ class FormResponse(BaseModel):
     version: int
     is_active: bool
     ai_extracted: bool
+    has_list_view: bool = False
+    has_pdf_export: bool = False
     section_count: int
     field_count: int
 
@@ -472,6 +474,7 @@ async def get_form(
         "is_active": form.is_active,
         "ai_extracted": form.ai_extracted,
         "has_list_view": form.has_list_view,
+        "has_pdf_export": form.has_pdf_export,
         "list_columns": (form.workflow_config or {}).get("list_columns", []),
         "sections": sections_out,
     }
@@ -592,6 +595,7 @@ class UpdateFormRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     has_list_view: Optional[bool] = None
+    has_pdf_export: Optional[bool] = None
     list_columns: Optional[list] = None  # [{field_key, label}]
 
 
@@ -618,6 +622,8 @@ async def update_form(
         form.description = body.description
     if body.has_list_view is not None:
         form.has_list_view = body.has_list_view
+    if body.has_pdf_export is not None:
+        form.has_pdf_export = body.has_pdf_export
     if body.list_columns is not None:
         form.workflow_config = {**(form.workflow_config or {}), "list_columns": body.list_columns}
 
@@ -634,6 +640,8 @@ async def update_form(
         version=form.version,
         is_active=form.is_active,
         ai_extracted=form.ai_extracted,
+        has_list_view=form.has_list_view,
+        has_pdf_export=form.has_pdf_export,
         section_count=section_count,
         field_count=field_count,
     )

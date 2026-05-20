@@ -55,6 +55,9 @@ class Form(Base, UUIDPrimaryKey, TimestampMixin):
     # List-view configuration
     has_list_view: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Print / PDF export
+    has_pdf_export: Mapped[bool] = mapped_column(Boolean, default=False)
+
     # Workflow configuration
     workflow_config: Mapped[dict] = mapped_column(JSONB, default=dict)
 

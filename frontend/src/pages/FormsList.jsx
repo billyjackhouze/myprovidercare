@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   IconPlus, IconSparkles, IconFileDescription, IconLoader2,
-  IconTrash, IconSettings, IconX, IconList, IconCheck, IconPencil,
+  IconTrash, IconSettings, IconX, IconList, IconCheck, IconPencil, IconPrinter,
 } from '@tabler/icons-react'
 import toast from 'react-hot-toast'
 import api from '@/lib/api'
@@ -13,6 +13,7 @@ function FormSettingsModal({ form, onClose, onSaved }) {
   const [schema, setSchema]           = useState(null)
   const [loadingSchema, setLoadingSchema] = useState(true)
   const [hasListView, setHasListView] = useState(form.has_list_view ?? false)
+  const [hasPdfExport, setHasPdfExport] = useState(form.has_pdf_export ?? false)
   const [listColumns, setListColumns] = useState([])
   const [saving, setSaving]           = useState(false)
 
@@ -25,6 +26,7 @@ function FormSettingsModal({ form, onClose, onSaved }) {
         const saved = (r.data.list_columns || []).map(c => c.field_key)
         setListColumns(saved)
         setHasListView(r.data.has_list_view ?? false)
+        setHasPdfExport(r.data.has_pdf_export ?? false)
       })
       .catch(() => toast.error('Could not load form fields'))
       .finally(() => setLoadingSchema(false))
@@ -50,6 +52,7 @@ function FormSettingsModal({ form, onClose, onSaved }) {
         .map(f => ({ field_key: f.field_key, label: f.label }))
       const res = await api.put(`/forms/${form.id}`, {
         has_list_view: hasListView,
+        has_pdf_export: hasPdfExport,
         list_columns: cols,
       })
       toast.success('Form settings saved')
@@ -103,6 +106,28 @@ function FormSettingsModal({ form, onClose, onSaved }) {
               <span
                 className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
                   hasListView ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+
+          {/* PDF Export toggle */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-heading">PDF Export</p>
+              <p className="text-xs text-muted mt-0.5">
+                Show a Print / Save as PDF button when filling out this form
+              </p>
+            </div>
+            <button
+              onClick={() => setHasPdfExport(v => !v)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                hasPdfExport ? 'bg-primary' : 'bg-border'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  hasPdfExport ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
             </button>
@@ -262,6 +287,9 @@ export default function FormsList() {
                   )}
                   {form.has_list_view && (
                     <IconList size={14} style={{ color: '#0D9488' }} title="List view enabled" />
+                  )}
+                  {form.has_pdf_export && (
+                    <IconPrinter size={14} style={{ color: '#7C3AED' }} title="PDF export enabled" />
                   )}
                   <button
                     className="text-muted hover:text-heading transition-colors p-0.5"

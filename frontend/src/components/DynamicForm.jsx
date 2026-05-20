@@ -6,7 +6,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   IconDeviceFloppy, IconLoader2, IconCheck, IconPlus,
-  IconArrowLeft, IconTrash, IconChevronRight,
+  IconArrowLeft, IconTrash, IconPrinter,
 } from '@tabler/icons-react'
 import toast from 'react-hot-toast'
 import api from '@/lib/api'
@@ -91,6 +91,7 @@ export default function DynamicForm({ clientId, formSchemaId, readOnly = false }
       response={response}
       setResponse={setResponse}
       readOnly={readOnly}
+      hasPdfExport={schema.has_pdf_export}
     />
   )
 }
@@ -252,12 +253,16 @@ function SubmissionDetail({ schema, clientId, formSchemaId, submissionId, isNew,
       onSave={handleSave}
       onBack={onBack}
       isNew={isNew}
+      clientId={clientId}
+      formSchemaId={formSchemaId}
+      submissionId={isNew ? null : submissionId}
+      hasPdfExport={schema.has_pdf_export}
     />
   )
 }
 
 // ─── Single-record form ───────────────────────────────────────────────────────
-function SingleForm({ schema, clientId, formSchemaId, response, setResponse, readOnly }) {
+function SingleForm({ schema, clientId, formSchemaId, response, setResponse, readOnly, hasPdfExport }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved]   = useState(false)
 
@@ -282,6 +287,9 @@ function SingleForm({ schema, clientId, formSchemaId, response, setResponse, rea
       saving={saving}
       saved={saved}
       onSave={handleSave}
+      clientId={clientId}
+      formSchemaId={formSchemaId}
+      hasPdfExport={hasPdfExport}
     />
   )
 }
@@ -318,7 +326,8 @@ function applyCalculations(next, allFields) {
 }
 
 // ─── Shared form body ─────────────────────────────────────────────────────────
-function FormBody({ schema, response, setResponse, readOnly, saving, saved, onSave, onBack, isNew }) {
+function FormBody({ schema, response, setResponse, readOnly, saving, saved, onSave, onBack, isNew,
+                    clientId, formSchemaId, submissionId, hasPdfExport }) {
   const sections  = schema.sections || []
   const allFields = sections.flatMap(s => s.fields || [])
 
@@ -327,6 +336,12 @@ function FormBody({ schema, response, setResponse, readOnly, saving, saved, onSa
       const next = { ...prev, [key]: val }
       return applyCalculations(next, allFields)
     })
+  }
+
+  const openPrint = () => {
+    const base = `/print/client/${clientId}/form/${formSchemaId}`
+    const url  = submissionId ? `${base}/submission/${submissionId}` : base
+    window.open(url, '_blank', 'noopener')
   }
 
   return (
@@ -343,16 +358,28 @@ function FormBody({ schema, response, setResponse, readOnly, saving, saved, onSa
             {isNew && <p className="text-xs text-muted">New record</p>}
           </div>
         </div>
-        {!readOnly && (
-          <div className="flex items-center gap-2">
-            {saved && <span className="text-xs text-emerald-600 font-medium flex items-center gap-1"><IconCheck size={13} /> Saved</span>}
-            <button onClick={() => onSave('complete')} disabled={saving} className="btn-secondary text-xs px-3 py-1.5">Mark Complete</button>
-            <button onClick={() => onSave('draft')} disabled={saving} className="btn-primary text-sm flex items-center gap-1.5">
-              {saving ? <IconLoader2 size={14} className="animate-spin" /> : <IconDeviceFloppy size={14} />}
-              {isNew ? 'Create' : 'Save'}
+        <div className="flex items-center gap-2">
+          {hasPdfExport && !isNew && clientId && formSchemaId && (
+            <button
+              onClick={openPrint}
+              className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1.5"
+              title="Print / Save as PDF"
+            >
+              <IconPrinter size={13} />
+              Print / PDF
             </button>
-          </div>
-        )}
+          )}
+          {!readOnly && (
+            <>
+              {saved && <span className="text-xs text-emerald-600 font-medium flex items-center gap-1"><IconCheck size={13} /> Saved</span>}
+              <button onClick={() => onSave('complete')} disabled={saving} className="btn-secondary text-xs px-3 py-1.5">Mark Complete</button>
+              <button onClick={() => onSave('draft')} disabled={saving} className="btn-primary text-sm flex items-center gap-1.5">
+                {saving ? <IconLoader2 size={14} className="animate-spin" /> : <IconDeviceFloppy size={14} />}
+                {isNew ? 'Create' : 'Save'}
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="space-y-5">

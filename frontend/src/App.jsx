@@ -14,11 +14,19 @@ import ClientList from '@/pages/ClientList'
 import ClientDetail from '@/pages/ClientDetail'
 import WorkflowSettings from '@/pages/WorkflowSettings'
 import Settings from '@/pages/Settings'
+import FormPrintView from '@/pages/FormPrintView'
 
 function ProtectedRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   if (!isAuthenticated) return <Navigate to="/login" replace />
   return <AppLayout>{children}</AppLayout>
+}
+
+// Print route — auth-checked but rendered without AppLayout sidebar/topbar
+function PrintRoute({ children }) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  return <>{children}</>
 }
 
 export default function App() {
@@ -50,6 +58,12 @@ export default function App() {
       <Route path="/audit"    element={<ProtectedRoute><PlaceholderPage title="Audit" /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="/settings/workflow" element={<ProtectedRoute><WorkflowSettings /></ProtectedRoute>} />
+
+      {/* Print views — no AppLayout, open in new tab */}
+      <Route path="/print/client/:clientId/form/:formSchemaId/submission/:submissionId"
+             element={<PrintRoute><FormPrintView /></PrintRoute>} />
+      <Route path="/print/client/:clientId/form/:formSchemaId"
+             element={<PrintRoute><FormPrintView /></PrintRoute>} />
 
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
