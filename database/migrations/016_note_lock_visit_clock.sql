@@ -81,21 +81,16 @@ CREATE OR REPLACE FUNCTION nc_current_user() RETURNS uuid LANGUAGE sql STABLE AS
 $$;
 
 -- ── 3. Devices ───────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS devices (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id        UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    kind          VARCHAR(10) NOT NULL CHECK (kind IN ('ipad','laptop')),
-    device_uid    VARCHAR(200) NOT NULL,              -- hardware / install identifier
-    label         VARCHAR(200),
-    status        VARCHAR(10) NOT NULL DEFAULT 'pending'
-                  CHECK (status IN ('pending','approved','revoked')),
-    approved_by   UUID REFERENCES users(id),
-    approved_at   TIMESTAMPTZ,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (org_id, device_uid)
-);
--- One approved iPad per user.
+-- `devices` already exists (push-token registry, referenced by visits.device_id).
+-- Extend it in place; existing rows keep kind NULL and are left alone.
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS kind VARCHAR(10) CHECK (kind IN ('ipad','laptop'));
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS device_uid VARCHAR(200);      -- hardware / install identifier
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS status VARCHAR(10) NOT NULL DEFAULT 'approved'
+    CHECK (status IN ('pending','approved','revoked'));
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES users(id);
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_devices_org_uid ON devices (org_id, device_uid) WHERE device_uid IS NOT NULL;
+-- One iPad per user.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_devices_one_ipad
   ON devices (user_id) WHERE kind = 'ipad' AND status <> 'revoked';
 
@@ -116,8 +111,10 @@ BEGIN
     IF u.progress_note_security NOT IN ('ipad','both') THEN
       RAISE EXCEPTION 'IPAD_NOT_ALLOWED_FOR_USER'; END IF;
   END IF;
-  INSERT INTO devices (org_id, user_id, kind, device_uid, label)
-  VALUES (u.org_id, p_user, p_kind, p_uid, p_label) RETURNING id INTO d;
+  INSERT INTO devices (id, org_id, user_id, kind, device_uid, device_name, device_type, is_active, status)
+  VALUES (gen_random_uuid(), u.org_id, p_user, p_kind, p_uid, p_label, p_kind, TRUE,
+          CASE WHEN p_kind = 'laptop' THEN 'pending' ELSE 'approved' END)
+  RETURNING id INTO d;
   RETURN d;
 END $$;
 
