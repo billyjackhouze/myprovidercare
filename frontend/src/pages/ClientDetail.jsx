@@ -9,6 +9,7 @@ import toast from 'react-hot-toast'
 import api from '@/lib/api'
 import DynamicForm from '@/components/DynamicForm'
 import IntakeTab from '@/components/IntakeTab'
+import ClientNotesTab from '@/pages/notes/ClientNotesTab'
 
 // Default tabs — used as fallback while workflow config loads
 const DEFAULT_TABS = [
@@ -698,6 +699,9 @@ export default function ClientDetail() {
           {activeTab === 'treatment' && !isNew && (
             <TreatmentPlansPanel clientId={clientId} />
           )}
+          {activeTab === 'notes' && !isNew && (
+            <ClientNotesTab clientId={clientId} client={client} />
+          )}
           {/* Custom form tabs */}
           {!isNew && (() => {
             const tab = workflowTabs.find(t => t.tab_key === activeTab)
@@ -707,7 +711,7 @@ export default function ClientDetail() {
             return null
           })()}
           {/* Built-in placeholder tabs */}
-          {activeTab !== 'general' && activeTab !== 'treatment' && activeTab !== 'intake' && (() => {
+          {activeTab !== 'general' && activeTab !== 'treatment' && activeTab !== 'intake' && activeTab !== 'notes' && (() => {
             const tab = workflowTabs.find(t => t.tab_key === activeTab)
             if (!tab || tab.tab_type !== 'custom') {
               return (

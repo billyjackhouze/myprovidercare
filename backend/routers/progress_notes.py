@@ -8,7 +8,7 @@ Nothing here decides times, locks or permissions.
 """
 import re
 import uuid
-from datetime import datetime
+from datetime import date, datetime, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -144,20 +144,100 @@ class StartBody(BaseModel):
     client_id: uuid.UUID
 
 
-@router.get("/mine")
-async def my_notes(db: AsyncSession = Depends(get_db), user=Depends(get_current_user)):
-    """The signed-in user's notes, newest first, with client name and clock state."""
-    r = await db.execute(text("""
-        SELECT n.id, n.visit_id, n.client_id, n.status, n.lock_state, n.submit_due_at,
-               n.credited_minutes, c.first_name, c.last_name,
-               v.hipaa_signed_at, v.photo_taken_at
+# Required-section rules mirrored from the screen (frontend/src/pages/notes/sections.js).
+# Temporary: these move to the form_rules table so the screen and the board share one source.
+_REQ_ALL = {
+    "header": ["service_location", "stage_of_change"],
+    "living": ["environment"],
+    "status": ["current_status", "mood_actions_reactions"],
+    "plan": ["plan_problem", "plan_goal", "plan_objective", "plan_intervention"],
+}
+_REQ_ANY = {
+    "focus": ["focus_independent_living", "focus_coordination_linkage", "focus_recovery_planning",
+              "focus_crisis_prevention", "focus_social_skills", "focus_medication_services"],
+    "methods": ["tm_rehearsal", "tm_instructions", "tm_handout", "tm_feedback_shaping", "tm_coaching",
+                "tm_prompting", "tm_education", "tm_reinforcement", "tm_practice",
+                "tm_educational_video", "tm_active_listening", "tm_motivational_interviewing"],
+}
+
+
+def _filled(v: Any) -> bool:
+    return v is not None and v is not False and str(v).strip() != ""
+
+
+def _completion(pn2: Optional[dict], clock_done: bool) -> tuple:
+    """(sections done, sections required) for the board: clock plus the rule-bearing sections."""
+    pn2 = pn2 or {}
+    done = 1 if clock_done else 0
+    for cols in _REQ_ALL.values():
+        done += all(_filled(pn2.get(c)) for c in cols)
+    for cols in _REQ_ANY.values():
+        done += any(_filled(pn2.get(c)) for c in cols)
+    done += 0 if (pn2.get("late_entry") and not pn2.get("late_entry_date")) else 1
+    return done, 1 + len(_REQ_ALL) + len(_REQ_ANY) + 1
+
+
+@router.get("/board")
+async def note_board(date_from: Optional[date] = None, date_to: Optional[date] = None,
+                     see_all: bool = False, client_id: Optional[uuid.UUID] = None,
+                     cm_id: Optional[uuid.UUID] = None,
+                     db: AsyncSession = Depends(get_db), user=Depends(get_current_user)):
+    """Status board. Staff see their own notes; reviewer roles see the whole organisation.
+
+    The date is the visit start (or the day the draft was created if the visit has not started).
+    `see_all` ignores the date range.
+    """
+    reviewer = user.role in _REVIEWER_ROLES
+    where = ["n.org_id = :org"]
+    params: Dict[str, Any] = {"org": user.org_id}
+    if not reviewer:
+        where.append("n.cm_id = :me"); params["me"] = user.id
+    elif cm_id:
+        where.append("n.cm_id = :cm"); params["cm"] = cm_id
+    if client_id:
+        where.append("n.client_id = :cl"); params["cl"] = client_id
+    if not see_all:
+        if date_from:
+            where.append("COALESCE(v.hipaa_signed_at, n.created_at)::date >= :df"); params["df"] = date_from
+        if date_to:
+            where.append("COALESCE(v.hipaa_signed_at, n.created_at)::date <= :dt"); params["dt"] = date_to
+    r = await db.execute(text(f"""
+        SELECT n.id, n.visit_id, n.client_id, n.cm_id, n.lock_state, n.submit_due_at, n.credited_minutes,
+               n.created_at, n.submitted_late,
+               c.first_name AS client_first_name, c.last_name AS client_last_name,
+               u.first_name AS cm_first_name, u.last_name AS cm_last_name,
+               v.hipaa_signed_at, v.photo_taken_at,
+               COALESCE(v.hipaa_signed_at, n.created_at) AS service_at
           FROM progress_notes n
           JOIN visits v ON v.id = n.visit_id
           JOIN clients c ON c.id = n.client_id
-         WHERE n.cm_id = :u
+          JOIN users u ON u.id = n.cm_id
+         WHERE {' AND '.join(where)}
          ORDER BY COALESCE(v.hipaa_signed_at, n.created_at) DESC
-         LIMIT 100"""), {"u": user.id})
-    return {"notes": [dict(x) for x in r.mappings().all()]}
+         LIMIT 500"""), params)
+    rows = [dict(x) for x in r.mappings().all()]
+    pn2 = {}
+    if rows:
+        p = await db.execute(text("SELECT * FROM pn2_data WHERE note_id = ANY(CAST(:ids AS uuid[]))"),
+                             {"ids": [str(x["id"]) for x in rows]})
+        pn2 = {x["note_id"]: dict(x) for x in p.mappings().all()}
+    now = datetime.now(timezone.utc)
+    for x in rows:
+        clock_done = x["photo_taken_at"] is not None
+        if x["lock_state"] == "locked":
+            st = "submitted"
+        elif x["lock_state"] == "reopened":
+            st = "reopened"
+        elif not x["hipaa_signed_at"]:
+            st = "not_started"
+        elif not clock_done:
+            st = "in_progress"
+        else:
+            st = "ready_to_submit"
+        x["board_status"] = st
+        x["overdue"] = bool(x["submit_due_at"] and x["lock_state"] != "locked" and x["submit_due_at"] < now)
+        x["sections_done"], x["sections_required"] = _completion(pn2.get(x["id"]), clock_done)
+    return {"notes": rows, "can_see_all_staff": reviewer}
 
 
 @router.post("/start", status_code=201)
@@ -173,6 +253,8 @@ async def start_note(body: StartBody, db: AsyncSession = Depends(get_db),
             "SELECT id, org_id, assigned_cm_id FROM clients WHERE id = :c"), {"c": body.client_id})
         client = c.mappings().first()
         if not client:
+            raise HTTPException(404, {"code": "CLIENT_NOT_FOUND", "message": "Client not found"})
+        if client["org_id"] != user.org_id:
             raise HTTPException(404, {"code": "CLIENT_NOT_FOUND", "message": "Client not found"})
         if client["assigned_cm_id"] != user.id and user.role not in _REVIEWER_ROLES:
             raise HTTPException(403, {"code": "NOT_ALLOWED", "message": "Client is not assigned to you"})
