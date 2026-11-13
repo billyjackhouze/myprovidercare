@@ -240,6 +240,48 @@ async def note_board(date_from: Optional[date] = None, date_to: Optional[date] =
     return {"notes": rows, "can_see_all_staff": reviewer}
 
 
+_FILL = {  # values for NOT NULL columns the live tables carry without a database default
+    "photo_exif_metadata": "{}", "flag_reasons": "[]", "photo_tamper_flag": "false",
+    "is_flagged": "false", "supervisor_reviewed": "false", "approved_for_billing": "false",
+    "approved_for_payroll": "false", "ai_gap_analysis": "{}", "prior_note_ids": "[]",
+    "is_final": "false", "supervisor_approved": "false", "version": "1",
+}
+
+
+async def _insert_row(db: AsyncSession, table: str, given: Dict[str, Any]) -> Any:
+    """INSERT one row, also filling any NOT NULL column that has no default (the live tables differ
+    from the migration files). Unknown required columns are reported by name."""
+    r = await db.execute(text("""
+        SELECT column_name AS c, format_type(a.atttypid, a.atttypmod) AS typ
+          FROM information_schema.columns i
+          JOIN pg_attribute a ON a.attrelid = CAST(:t AS regclass) AND a.attname = i.column_name
+         WHERE i.table_name = :t AND i.is_nullable = 'NO' AND i.column_default IS NULL
+           AND i.is_generated = 'NEVER' AND i.is_identity = 'NO'"""), {"t": table})
+    need = {row.c: row.typ for row in r}
+    vals: Dict[str, Any] = dict(given)
+    missing = []
+    for c, typ in need.items():
+        if c in vals or c == "id":
+            continue
+        if c in _FILL:
+            vals[c] = ("fill", _FILL[c], typ)
+        else:
+            missing.append(c)
+    if missing:
+        raise HTTPException(500, {"code": "MISSING_REQUIRED_COLUMNS",
+                                  "message": f"{table} needs values for: {', '.join(missing)}"})
+    cols, ph, params = [], [], {}
+    for i, (c, v) in enumerate(vals.items()):
+        cols.append(f'"{c}"')
+        if isinstance(v, tuple):
+            params[f"v{i}"] = v[1]; ph.append(f"CAST(CAST(:v{i} AS text) AS {v[2]})")
+        else:
+            params[f"v{i}"] = v; ph.append(f":v{i}")
+    res = await db.execute(text(
+        f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join(ph)}) RETURNING id"), params)
+    return res.scalar_one()
+
+
 @router.post("/start", status_code=201)
 async def start_note(body: StartBody, db: AsyncSession = Depends(get_db),
                      user=Depends(get_current_user)):
@@ -266,15 +308,12 @@ async def start_note(body: StartBody, db: AsyncSession = Depends(get_db),
         row = ex.mappings().first()
         if row:
             return {"note_id": row["id"], "visit_id": row["visit_id"], "reused": True}
-        v = await db.execute(text("""
-            INSERT INTO visits (org_id, client_id, cm_id) VALUES (:o, :c, :u) RETURNING id"""),
-            {"o": client["org_id"], "c": body.client_id, "u": user.id})
-        visit_id = v.scalar_one()
-        n = await db.execute(text("""
-            INSERT INTO progress_notes (visit_id, org_id, cm_id, client_id)
-            VALUES (:v, :o, :u, :c) RETURNING id"""),
-            {"v": visit_id, "o": client["org_id"], "u": user.id, "c": body.client_id})
-        return {"note_id": n.scalar_one(), "visit_id": visit_id, "reused": False}
+        visit_id = await _insert_row(db, "visits", {
+            "org_id": client["org_id"], "client_id": body.client_id, "cm_id": user.id})
+        note_id = await _insert_row(db, "progress_notes", {
+            "visit_id": visit_id, "org_id": client["org_id"], "cm_id": user.id,
+            "client_id": body.client_id})
+        return {"note_id": note_id, "visit_id": visit_id, "reused": False}
     except DBAPIError as e:
         _raise_http(e)
 
