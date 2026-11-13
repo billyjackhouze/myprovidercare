@@ -67,13 +67,14 @@ async def log_requests(request: Request, call_next):
 
 
 # ── API Routers ───────────────────────────────────────────────────────────────
-from routers import auth, forms, clients, visits, users, claims, payroll, dashboard, workflow, intake, settings as settings_router, automation
+from routers import auth, forms, clients, visits, users, claims, payroll, dashboard, workflow, intake, settings as settings_router, automation, progress_notes
 
 app.include_router(auth.router,        prefix="/api/auth",       tags=["Auth"])
 app.include_router(users.router,       prefix="/api/users",      tags=["Users"])
 app.include_router(clients.router,     prefix="/api/clients",    tags=["Clients"])
 app.include_router(intake.router,      prefix="/api/clients",    tags=["Intake"])
 app.include_router(visits.router,      prefix="/api/visits",     tags=["Visits"])
+app.include_router(progress_notes.router, prefix="/api/notes",   tags=["Progress Notes"])
 app.include_router(forms.router,       prefix="/api/forms",      tags=["Forms Engine"])
 app.include_router(automation.router,  prefix="/api/automation", tags=["Automation"])
 app.include_router(claims.router,      prefix="/api/claims",     tags=["Claims"])
