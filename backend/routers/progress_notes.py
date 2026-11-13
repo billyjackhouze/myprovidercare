@@ -139,15 +139,78 @@ async def stop_clock(visit_id: uuid.UUID, body: StopCapture,
         _raise_http(e)
 
 
+# ── My notes and starting a note ───────────────────────────────────────────────
+class StartBody(BaseModel):
+    client_id: uuid.UUID
+
+
+@router.get("/mine")
+async def my_notes(db: AsyncSession = Depends(get_db), user=Depends(get_current_user)):
+    """The signed-in user's notes, newest first, with client name and clock state."""
+    r = await db.execute(text("""
+        SELECT n.id, n.visit_id, n.client_id, n.status, n.lock_state, n.submit_due_at,
+               n.credited_minutes, c.first_name, c.last_name,
+               v.hipaa_signed_at, v.photo_taken_at
+          FROM progress_notes n
+          JOIN visits v ON v.id = n.visit_id
+          JOIN clients c ON c.id = n.client_id
+         WHERE n.cm_id = :u
+         ORDER BY COALESCE(v.hipaa_signed_at, n.created_at) DESC
+         LIMIT 100"""), {"u": user.id})
+    return {"notes": [dict(x) for x in r.mappings().all()]}
+
+
+@router.post("/start", status_code=201)
+async def start_note(body: StartBody, db: AsyncSession = Depends(get_db),
+                     user=Depends(get_current_user)):
+    """Create the visit and its draft note for one of the user's clients.
+
+    Reuses an unfinished draft for the same client instead of making a second one.
+    """
+    try:
+        await _as_user(db, user)
+        c = await db.execute(text(
+            "SELECT id, org_id, assigned_cm_id FROM clients WHERE id = :c"), {"c": body.client_id})
+        client = c.mappings().first()
+        if not client:
+            raise HTTPException(404, {"code": "CLIENT_NOT_FOUND", "message": "Client not found"})
+        if client["assigned_cm_id"] != user.id and user.role not in _REVIEWER_ROLES:
+            raise HTTPException(403, {"code": "NOT_ALLOWED", "message": "Client is not assigned to you"})
+        ex = await db.execute(text("""
+            SELECT n.id, n.visit_id FROM progress_notes n JOIN visits v ON v.id = n.visit_id
+             WHERE n.cm_id = :u AND n.client_id = :c AND n.lock_state <> 'locked'
+               AND v.photo_taken_at IS NULL
+             ORDER BY n.created_at DESC LIMIT 1"""), {"u": user.id, "c": body.client_id})
+        row = ex.mappings().first()
+        if row:
+            return {"note_id": row["id"], "visit_id": row["visit_id"], "reused": True}
+        v = await db.execute(text("""
+            INSERT INTO visits (org_id, client_id, cm_id) VALUES (:o, :c, :u) RETURNING id"""),
+            {"o": client["org_id"], "c": body.client_id, "u": user.id})
+        visit_id = v.scalar_one()
+        n = await db.execute(text("""
+            INSERT INTO progress_notes (visit_id, org_id, cm_id, client_id)
+            VALUES (:v, :o, :u, :c) RETURNING id"""),
+            {"v": visit_id, "o": client["org_id"], "u": user.id, "c": body.client_id})
+        return {"note_id": n.scalar_one(), "visit_id": visit_id, "reused": False}
+    except DBAPIError as e:
+        _raise_http(e)
+
+
 # ── Note state, submit, reopen ──────────────────────────────────────────────────
 _REVIEWER_ROLES = ("team_lead", "supervisor", "owner", "admin", "developer", "auditor")
 
 
 async def _note_row(db: AsyncSession, note_id: uuid.UUID, user) -> dict:
     r = await db.execute(text("""
-        SELECT id, visit_id, client_id, cm_id, org_id, status, lock_state, note_type,
-               submit_due_at, submitted_late, closed_correctly, credited_minutes
-          FROM progress_notes WHERE id = :n"""), {"n": note_id})
+        SELECT n.id, n.visit_id, n.client_id, n.cm_id, n.org_id, n.status, n.lock_state, n.note_type,
+               n.submit_due_at, n.submitted_late, n.closed_correctly, n.credited_minutes,
+               c.first_name AS client_first_name, c.last_name AS client_last_name,
+               v.hipaa_signed_at, v.photo_taken_at
+          FROM progress_notes n
+          JOIN visits v ON v.id = n.visit_id
+          JOIN clients c ON c.id = n.client_id
+         WHERE n.id = :n"""), {"n": note_id})
     row = r.mappings().first()
     if not row:
         raise HTTPException(404, {"code": "NOTE_NOT_FOUND", "message": "Note not found"})

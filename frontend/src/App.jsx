@@ -14,6 +14,8 @@ import ClientList from '@/pages/ClientList'
 import ClientDetail from '@/pages/ClientDetail'
 import WorkflowSettings from '@/pages/WorkflowSettings'
 import Settings from '@/pages/Settings'
+import ProgressNotes from '@/pages/ProgressNotes'
+import ProgressNote from '@/pages/ProgressNote'
 import FormPrintView from '@/pages/FormPrintView'
 
 function ProtectedRoute({ children }) {
@@ -51,7 +53,8 @@ export default function App() {
       <Route path="/clients/:clientId" element={<ProtectedRoute><ClientDetail /></ProtectedRoute>} />
       <Route path="/schedule" element={<ProtectedRoute><PlaceholderPage title="Schedule" /></ProtectedRoute>} />
       <Route path="/visits"   element={<ProtectedRoute><PlaceholderPage title="Visits" /></ProtectedRoute>} />
-      <Route path="/notes"    element={<ProtectedRoute><PlaceholderPage title="Progress Notes" /></ProtectedRoute>} />
+      <Route path="/notes"    element={<ProtectedRoute><ProgressNotes /></ProtectedRoute>} />
+      <Route path="/notes/:noteId" element={<ProtectedRoute><ProgressNote /></ProtectedRoute>} />
       <Route path="/claims"   element={<ProtectedRoute><PlaceholderPage title="Claims" /></ProtectedRoute>} />
       <Route path="/payroll"  element={<ProtectedRoute><PlaceholderPage title="Payroll" /></ProtectedRoute>} />
       <Route path="/map"      element={<ProtectedRoute><PlaceholderPage title="Live Map" /></ProtectedRoute>} />
